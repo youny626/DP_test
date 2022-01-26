@@ -1,6 +1,8 @@
 import pandas as pd
 import CDP
 import LDP
+from crypte_test import CrypteTest
+import time
 
 def encode_and_bind(original_dataframe, feature_to_encode):
     dummies = pd.get_dummies(original_dataframe[feature_to_encode], prefix=feature_to_encode, prefix_sep='_')
@@ -15,6 +17,7 @@ def encode_and_bind(original_dataframe, feature_to_encode):
 if __name__ == '__main__':
     df = pd.read_csv("./PUMS.csv")
     df.drop(["income", "pid"], axis=1, inplace=True)
+    df = df.head(10)
     print(df.head(10))
     features_to_encode = ['age', 'sex', 'educ', 'race', 'married']
     df_one_hot = df.copy()
@@ -24,14 +27,20 @@ if __name__ == '__main__':
         crypte_attrs.append(num_cols)
     print(df_one_hot.head(10))
 
-
     epsilon = 1.0
+
+    crypte = CrypteTest(crypte_attrs, epsilon)
+    start = time.time()
+    crypte.insert(df_one_hot)
+    elapsed = time.time() - start
+    print("time inserting vector to crypte: " + str(elapsed))
 
     print("identity: COUNT(age)")
 
     print("original: ", len(df["age"]))
     print("CDP: ", CDP.count(df["age"], epsilon))
     print("LDP: ", LDP.count(df["age"], epsilon))
+    print("Crypte: ", crypte.count(attr_num=1, start=1, end=crypte_attrs[0]))
 
     print("range(over a single attribute): COUNT(20 <= age <= 30)")
 

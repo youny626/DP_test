@@ -1,19 +1,33 @@
+from abc import ABC, abstractmethod
 import math
-
 import numpy as np
 import pandas as pd
 import xxhash
 
-class FrequencyOracle:
+class FrequencyOracle(ABC):
 
-    def __init__(self, array, epsilon, domain_size):
+    def __init__(self, array, epsilon, domain_size=None):
         self.array = array
         self.epsilon = epsilon
+        if domain_size == None:
+            domain_size = max(array) + 1 #include 0
         self.domain_size = domain_size
+        self.n = len(array)
+
+    @abstractmethod
+    def perturb(self):
+        pass
+
+    @abstractmethod
+    def aggregate(self, perturbed_data):
+        pass
+
+class OLH(FrequencyOracle):
+    def __init__(self, array, epsilon, domain_size=None):
+        super().__init__(array, epsilon, domain_size)
         self.g = int(round(math.exp(epsilon))) + 1
         self.p = math.exp(epsilon) / (math.exp(epsilon) + self.g - 1)
         self.q = 1.0 / (math.exp(epsilon) + self.g - 1)
-        self.n = len(array)
 
     def perturb(self):
         Y = np.zeros(self.n)
@@ -44,23 +58,17 @@ class FrequencyOracle:
         ESTIMATE_DIST = a * ESTIMATE_DIST - b
         return ESTIMATE_DIST
 
-def count(array, epsilon, domain_size = None):
-    if domain_size == None:
-        domain_size = max(array) + 1 #include 0
-    FO = FrequencyOracle(array, epsilon, domain_size)
-    perturbed = FO.perturb()
-    frequency = FO.aggregate(perturbed)
-    return sum(frequency)
+    def count(self):
+        perturbed = self.perturb()
+        frequency = self.aggregate(perturbed)
+        return sum(frequency)
 
-def count_in_range(array, start, end, epsilon, domain_size = None):
-    if domain_size == None:
-        domain_size = max(array) + 1 #include 0
-    FO = FrequencyOracle(array, epsilon, domain_size)
-    perturbed = FO.perturb()
-    frequency = FO.aggregate(perturbed)
-    count = 0
-    for i in range(start, end+1):
-        count += frequency[i]
-    # print(pd.Series(array).value_counts())
-    # print(frequency)
-    return count
+    def count_in_range(self, start, end):
+        perturbed = self.perturb()
+        frequency = self.aggregate(perturbed)
+        count = 0
+        for i in range(start, end+1):
+            count += frequency[i]
+        # print(pd.Series(array).value_counts())
+        # print(frequency)
+        return count

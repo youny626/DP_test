@@ -22,6 +22,21 @@ class FrequencyOracle(ABC):
     def aggregate(self, perturbed_data):
         pass
 
+    def count(self):
+        perturbed = self.perturb()
+        frequency = self.aggregate(perturbed)
+        return sum(frequency)
+
+    def count_in_range(self, start, end):
+        perturbed = self.perturb()
+        frequency = self.aggregate(perturbed)
+        count = 0
+        for i in range(start, end+1):
+            count += frequency[i]
+        # print(pd.Series(array).value_counts())
+        # print(frequency)
+        return count
+
 class OLH(FrequencyOracle):
     def __init__(self, array, epsilon, domain_size=None):
         super().__init__(array, epsilon, domain_size)
@@ -58,17 +73,34 @@ class OLH(FrequencyOracle):
         ESTIMATE_DIST = a * ESTIMATE_DIST - b
         return ESTIMATE_DIST
 
-    def count(self):
-        perturbed = self.perturb()
-        frequency = self.aggregate(perturbed)
-        return sum(frequency)
 
-    def count_in_range(self, start, end):
-        perturbed = self.perturb()
-        frequency = self.aggregate(perturbed)
-        count = 0
-        for i in range(start, end+1):
-            count += frequency[i]
-        # print(pd.Series(array).value_counts())
-        # print(frequency)
-        return count
+class RR(FrequencyOracle):
+    def __init__(self, array, epsilon, domain_size=None):
+        super().__init__(array, epsilon, domain_size)
+        self.p = math.exp(self.epsilon) / (math.exp(self.epsilon) + self.domain_size - 1)
+        self.q = 1 / (math.exp(self.epsilon) + self.domain_size - 1)
+        # self.var = self.q * (1 - self.q) / (self.p - self.q) ** 2
+
+    def perturb(self):
+        perturbed_data = np.zeros(self.n)
+        for i in range(self.n):
+            y = self.array[i]
+            p_sample = np.random.random_sample()
+
+            if p_sample > self.p:
+                # perturb
+                y = np.random.randint(0, self.domain_size)
+
+            perturbed_data[i] = y
+
+        return perturbed_data
+
+    def aggregate(self, perturbed_data):
+        ESTIMATE_DIST = np.zeros(self.domain_size)
+        unique, counts = np.unique(perturbed_data, return_counts=True)
+
+        for i in range(len(unique)):
+            ESTIMATE_DIST[unique[i]] = counts[i]
+
+        return ESTIMATE_DIST
+

@@ -5,6 +5,7 @@ from crypte_test import CrypteTest
 import time
 import numpy as np
 from sklearn.metrics import mean_absolute_error
+import matplotlib.pyplot as plt
 
 
 def encode_and_bind(original_dataframe, feature_to_encode):
@@ -18,19 +19,56 @@ def encode_and_bind(original_dataframe, feature_to_encode):
     return res, num_cols
 
 
+def print_result(num_iters, true_answer, cdp_res, cdp_time, olh_res, olh_time, rr_res, rr_time, crypte_res,
+                 crypte_time):
+    print("Method: MAE, STD, Avg time(s)")
+    print("CDP: ", mean_absolute_error(true_answer, cdp_res), np.std(cdp_res), cdp_time / num_iters)
+    print("LDP(OLH): ", mean_absolute_error(true_answer, olh_res), np.std(olh_res), olh_time / num_iters)
+    print("LDP(RR): ", mean_absolute_error(true_answer, rr_res), np.std(rr_res), rr_time / num_iters)
+    print("Crypte: ", mean_absolute_error(true_answer, crypte_res), np.std(crypte_res), crypte_time / num_iters)
+
+
+def plot_result(num_iters, true_answer, cdp_res, cdp_time, olh_res, olh_time, rr_res, rr_time, crypte_res,
+                crypte_time, fig_name):
+    fig, (ax1, ax2) = plt.subplots(2, sharex=True)
+
+    x = ['CDP', 'LDP(OLH)', 'LDP(RR)', 'Crypte']
+    x_pos = np.arange(len(x))
+
+    mae = [mean_absolute_error(true_answer, cdp_res), mean_absolute_error(true_answer, olh_res),
+           mean_absolute_error(true_answer, rr_res), mean_absolute_error(true_answer, crypte_res)]
+    std = [np.std(cdp_res), np.std(olh_res), np.std(rr_res), np.std(crypte_res)]
+
+    ax1.bar(x_pos, mae, yerr=std)
+    # ax1.xlabel("Method")
+    ax1.set_ylabel("MAE")
+    # ax1.title("MAE")
+    # ax1.xticks(x_pos, x)
+
+    time = [cdp_time / num_iters, olh_time / num_iters, rr_time / num_iters, crypte_time / num_iters]
+    ax2.bar(x_pos, time)
+    ax2.set_xlabel("Method")
+    ax2.set_ylabel("average time(s)")
+    # ax2.title("MAE")
+    plt.xticks(x_pos, x)
+
+    fig.tight_layout()
+    plt.savefig("./figures/" + fig_name)
+    plt.show()
+    plt.close()
+
+
 if __name__ == '__main__':
     epsilon = 1.0
     num_iters = 10
 
     df = pd.read_csv("./PUMS_large.csv")
     df.drop(["Unnamed: 0", "state", "puma", "income", "latino", "black", "asian"], axis=1, inplace=True)
-    # df = df.head(10)
     # df.drop(["income", "pid"], axis=1, inplace=True)
 
     print(df.head(10))
-    # exit(0)
 
-    features_to_encode = ['age', 'sex', 'educ', 'married']
+    features_to_encode = ['age', 'sex', 'educ', 'married']#, 'race']
     df_one_hot = df.copy()
     crypte_attrs = []
     for feature in features_to_encode:
@@ -47,7 +85,8 @@ if __name__ == '__main__':
     print("time inserting vector to crypte: " + str(elapsed))
 
     cdp_res, cdp_time = np.zeros(num_iters), 0
-    ldp_res, ldp_time = np.zeros(num_iters), 0
+    olh_res, olh_time = np.zeros(num_iters), 0
+    rr_res, rr_time = np.zeros(num_iters), 0
     crypte_res, crypte_time = np.zeros(num_iters), 0
 
     print("\nidentity: COUNT(age)")
@@ -62,8 +101,13 @@ if __name__ == '__main__':
 
         start = time.time()
         olh = LDP.OLH(array=df["age"], epsilon=epsilon)
-        ldp_res[i] = olh.count()
-        ldp_time += (time.time() - start)
+        olh_res[i] = olh.count()
+        olh_time += (time.time() - start)
+
+        start = time.time()
+        rr = LDP.RR(array=df["age"], epsilon=epsilon)
+        rr_res[i] = olh.count()
+        rr_time += (time.time() - start)
 
         start = time.time()
         crypte_res[i] = crypte.count(attr_num=1, start=1, end=crypte_attrs[0])
@@ -73,12 +117,13 @@ if __name__ == '__main__':
         # print("LDP: ", LDP.count(df["age"], epsilon))
         # print("Crypte: ", crypte.count(attr_num=1, start=1, end=crypte_attrs[0]))\
 
-    print("CDP: ", mean_absolute_error(true_answer, cdp_res), cdp_time / num_iters)
-    print("LDP: ", mean_absolute_error(true_answer, ldp_res), ldp_time / num_iters)
-    print("Crypte: ", mean_absolute_error(true_answer, crypte_res), crypte_time / num_iters)
+    print_result(num_iters, true_answer, cdp_res, cdp_time, olh_res, olh_time, rr_res, rr_time, crypte_res, crypte_time)
+    plot_result(num_iters, true_answer, cdp_res, cdp_time, olh_res, olh_time, rr_res, rr_time, crypte_res,
+                crypte_time, "identity")
 
     cdp_res, cdp_time = np.zeros(num_iters), 0
-    ldp_res, ldp_time = np.zeros(num_iters), 0
+    olh_res, olh_time = np.zeros(num_iters), 0
+    rr_res, rr_time = np.zeros(num_iters), 0
     crypte_res, crypte_time = np.zeros(num_iters), 0
 
     print("\nrange(over a single attribute): COUNT(20 <= age <= 30)")
@@ -93,8 +138,13 @@ if __name__ == '__main__':
 
         start = time.time()
         olh = LDP.OLH(array=df["age"], epsilon=epsilon)
-        ldp_res[i] = olh.count_in_range(20, 30)
-        ldp_time += (time.time() - start)
+        olh_res[i] = olh.count_in_range(20, 30)
+        olh_time += (time.time() - start)
+
+        start = time.time()
+        rr = LDP.RR(array=df["age"], epsilon=epsilon)
+        rr_res[i] = olh.count_in_range(20, 30)
+        rr_time += (time.time() - start)
 
         start = time.time()
         col_list = df_one_hot_sum.columns.tolist()
@@ -107,6 +157,6 @@ if __name__ == '__main__':
         # print("LDP: ", LDP.count_in_range(df["age"], 20, 30, epsilon))
         # print("crypte: ", crypte.count(attr_num=1, start=start_pos, end=end_pos)))
 
-    print("CDP: ", mean_absolute_error(true_answer, cdp_res), cdp_time / num_iters)
-    print("LDP: ", mean_absolute_error(true_answer, ldp_res), ldp_time / num_iters)
-    print("Crypte: ", mean_absolute_error(true_answer, crypte_res), crypte_time / num_iters)
+    print_result(num_iters, true_answer, cdp_res, cdp_time, olh_res, olh_time, rr_res, rr_time, crypte_res, crypte_time)
+    plot_result(num_iters, true_answer, cdp_res, cdp_time, olh_res, olh_time, rr_res, rr_time, crypte_res,
+                crypte_time, "range")

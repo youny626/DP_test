@@ -40,12 +40,19 @@ class FrequencyOracle(ABC):
 class OLH(FrequencyOracle):
     def __init__(self, array, epsilon, domain_size=None):
         super().__init__(array, epsilon, domain_size)
-        self.g = int(round(math.exp(epsilon))) + 1
+        # self.g = int(round(math.exp(epsilon))) + 1
+        self.g = self.domain_size
         self.p = math.exp(epsilon) / (math.exp(epsilon) + self.g - 1)
         self.q = 1.0 / (math.exp(epsilon) + self.g - 1)
+        print("OLH: g =", self.g)
+        print("OLH: p =", self.p)
+        print("OLH: q =", self.q)
 
     def perturb(self):
-        Y = np.zeros(self.n)
+        # TODO: perturbation can be done in parallel to simulate each user sending their message
+        #  (but this step is fast)
+        Y = np.zeros(self.n, dtype=int)
+        counter = 0
         for i in range(self.n):
             v = self.array[i]
             x = (xxhash.xxh32(str(v), seed=i).intdigest() % self.g)
@@ -59,11 +66,17 @@ class OLH(FrequencyOracle):
             if p_sample > self.p - self.q:
                 # perturb
                 y = np.random.randint(0, self.g)
+                counter += 1
+
             Y[i] = y
+
+        print("OLH: randomized {} times".format(counter))
+
         return Y
 
     def aggregate(self, perturbed_data):
         ESTIMATE_DIST = np.zeros(self.domain_size)
+        # TODO: too slow
         for i in range(self.n):
             for v in range(self.domain_size):
                 if perturbed_data[i] == (xxhash.xxh32(str(v), seed=i).intdigest() % self.g):
@@ -79,10 +92,15 @@ class RR(FrequencyOracle):
         super().__init__(array, epsilon, domain_size)
         self.p = math.exp(self.epsilon) / (math.exp(self.epsilon) + self.domain_size - 1)
         self.q = 1 / (math.exp(self.epsilon) + self.domain_size - 1)
+        print("RR: p = ", self.p)
+        print("RR: q = ", self.q)
         # self.var = self.q * (1 - self.q) / (self.p - self.q) ** 2
 
     def perturb(self):
-        perturbed_data = np.zeros(self.n)
+        # TODO: perturbation can be done in parallel to simulate each user sending their message
+        #  (but this step is fast)
+        perturbed_data = np.zeros(self.n, dtype=int)
+        counter = 0
         for i in range(self.n):
             y = self.array[i]
             p_sample = np.random.random_sample()
@@ -90,8 +108,14 @@ class RR(FrequencyOracle):
             if p_sample > self.p:
                 # perturb
                 y = np.random.randint(0, self.domain_size)
+                counter += 1
 
             perturbed_data[i] = y
+
+        print("RR: randomized {} times".format(counter))
+
+        # print(self.array[:100])
+        # print(perturbed_data[:100])
 
         return perturbed_data
 

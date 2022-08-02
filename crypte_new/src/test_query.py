@@ -182,16 +182,30 @@ class TestClient(unittest.TestCase):
         # simulate client upload data
         a.insert_to_db(c)
         a.insert_to_db(c)
-            
+
+        #
         c = a.execute(test_q2, 1, 2, pk)
         g_truth = [3, 7, 5, 6, 7, 6, 14, 10, 12, 14]
         #print(cosproduct.get_data()[0][0])
-        self.assertEqual(g_truth, cs.reveal_clear_mult_vector(c.get_data()[0]))        
+        self.assertEqual(g_truth, cs.reveal_clear_mult_vector(c.get_data()[0]))
+
+
+    def test(self):
+        import numpy as np
+
+        # 1 0 1 0
+        # 0 1 0 1
+        # 1 1 0 0
+        # 0 0 1 1
+        # x = np.array([[1, 0], [0, 1], [1, 1], [0, 0]])
+        # y = np.array([[1, 0], [0, 1], [0, 0], [1, 1]])
+        x = [1, 0]
+        y = [0, 1]
+        print(np.cross(x, y))
         
     ''' Test of multi-dimentional filter query'''
     def test_cosprod_filter(self):
-        data = [1,2,3,7,5,6,7,8,9]
-        attr = [2,5,2]
+        attr = [2, 2]
         
         # set up CSP and derive keys
         cs = CSP()
@@ -199,8 +213,9 @@ class TestClient(unittest.TestCase):
         pk, sk = cs.derive_key()
         
         #set up AS, pk and init data
-        x = Cdata(attr=[2,5,2])
+        x = Cdata(attr=attr)
         x.set_pk(pk)
+        data = [1, 0, 0, 1]
         c = pro.lab_encrypt_vector(pk, data)
         x.insert(c) 
         a = AS()
@@ -208,13 +223,42 @@ class TestClient(unittest.TestCase):
         a.load_data(x)
         
         # simulate client upload data
+        data = [1, 0, 1, 0]
+        c = pro.lab_encrypt_vector(pk, data)
         a.insert_to_db(c)
-        a.insert_to_db(c)
+        # a.insert_to_db(c)
             
         c = a.execute(test_q2, 1, 2, pk)
-        g_truth = [3, 7, 5, 6, 7, 6, 14, 10, 12, 14]
+        # g_truth = [1, ]
         #print(cosproduct.get_data()[0][0])
-        self.assertEqual(g_truth, cs.reveal_clear_mult_vector(c.get_data()[0]))        
+        # print(len(c.get_data()))
+        # print(len(c.get_data()[0]))
+        self.assertEqual([0, 1, 0, 0], cs.reveal_clear_mult_vector(c.get_data()[0]))
+        self.assertEqual([1, 0, 0, 0], cs.reveal_clear_mult_vector(c.get_data()[1]))
+
+        # attr1 = 2, attr2 = 1
+        # so the index (1-based) to filter for the cross product is 2
+        print(c.get_attr())
+
+        a = AS()
+        a.set_key(pk)
+        a.load_data(c)
+        # a.load_data(c) # load_data will changed the current data to the data to load
+
+        encrypted_count = a.execute(test_q1, 1, 2, 2)
+        # c.set_data(c.get_data()[0])
+        # encfilter = cte.filter(c, 1, 2, 2)
+        # encrypted_count = encfilter.count()
+        print(encrypted_count)
+        print("True counting output is", cs.reveal_clear_vector(encrypted_count))
+
+
+        sens = 1
+        eps = 1
+        c = a.laplace_distort(sens, eps, 1, encrypted_count)
+        print("DP counting output is", cs.reveal_noisy(c, sens, eps))
+
+        # print(len(c.get_data()))
         
         
 if __name__ == '__main__':

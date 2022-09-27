@@ -97,7 +97,7 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query: str,
             dfs_one_off.append(cur_df)
 
             private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
-            cur_result = private_reader.reader.execute_df(query)
+            cur_result = private_reader.reader.execute_df(query) # execute query without DP
 
             change = abs(cur_result - original_result).to_numpy().sum()
             original_risks.append(change)
@@ -114,6 +114,8 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query: str,
             np.percentile(sorted_original_risks, risk_group_percentile, interpolation='nearest'))
         idx2 = sorted_original_risks.index(
             np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest'))
+        if idx1 > idx2:
+            idx1, idx2 = idx2, idx1
         # print(idx1, idx2)
 
         # sample1 = sorted_original_risks[:idx1]
@@ -155,27 +157,37 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query: str,
 
                 start_time = time.time()
 
-                new_risks = []
+                # We get the same samples based on individuals who are present in the original chosen samples
+                # we only need to compute risks for those samples
+                new_risks1 = []
+                new_risks2 = []
 
-                for i in range(len(df)):
+                for i in sample_idx1:
                     cur_df = dfs_one_off[i]
 
                     private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
                     cur_result = private_reader.execute_df(query)
 
                     change = abs(cur_result - dp_result).to_numpy().sum()
-                    new_risks.append(change)
+                    new_risks1.append(change)
+
+                for i in sample_idx2:
+                    cur_df = dfs_one_off[i]
+
+                    private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
+                    cur_result = private_reader.execute_df(query)
+
+                    change = abs(cur_result - dp_result).to_numpy().sum()
+                    new_risks2.append(change)
 
                 elapsed = time.time() - start_time
+                print(f"{j}th compute risk time: {elapsed} s")
                 compute_risk_time += elapsed
 
-                # We get the same samples based on individuals who are present in the original chosen samples
+                # We perform the test and record the p-value for each ru
                 start_time = time.time()
 
-                cur_sample1 = [new_risks[idx] for idx in sample_idx1]
-                cur_sample2 = [new_risks[idx] for idx in sample_idx2]
-
-                cur_res = stats.ks_2samp(cur_sample1, cur_sample2)
+                cur_res = stats.ks_2samp(new_risks1, new_risks2)
                 p_value = cur_res[1]
                 p_values.append(p_value)
 
@@ -205,7 +217,11 @@ if __name__ == '__main__':
 
     query = "SELECT AVG(age) FROM PUMS.PUMS"
 
-    eps_list = np.arange(0.01, 1, 0.1, dtype=float)
+    # design epsilons to test in a way that smaller eps are more frequent and largest eps are less
+    eps_list = list(np.arange(0.01, 0.1, 0.01, dtype=float))
+    eps_list += list(np.arange(0.1, 1.1, 0.1, dtype=float))
+    # eps_list += list(np.arange(1, 11, 1, dtype=float))
+    print(eps_list)
 
     start_time = time.time()
     eps = find_epsilon(df, "PUMS", query, 90, eps_list, 10, 0.05)

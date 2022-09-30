@@ -144,6 +144,7 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query: str,
 
         for eps in tqdm.tqdm(sorted_eps_to_test):
 
+            reject_null = False
             p_values = []
 
             # For each run, we compute the risks again
@@ -154,6 +155,9 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query: str,
             dp_result = private_reader.execute_df(query)
 
             for j in tqdm.tqdm(range(num_runs)):
+
+                if reject_null:
+                    continue # this eps does not equalize risks, skip
 
                 start_time = time.time()
 
@@ -184,20 +188,22 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query: str,
                 print(f"{j}th compute risk time: {elapsed} s")
                 compute_risk_time += elapsed
 
-                # We perform the test and record the p-value for each ru
+                # We perform the test and record the p-value for each run
                 start_time = time.time()
 
                 cur_res = stats.ks_2samp(new_risks1, new_risks2)
                 p_value = cur_res[1]
+                if p_value < 0.01:
+                    reject_null = True # early stopping
                 p_values.append(p_value)
 
                 elapsed = time.time() - start_time
                 test_equal_distrbution_time += elapsed
 
-            # Now we have n p-values for the current epsilon, we use multiple comparisons technique
+            # Now we have n p-values for the current epsilon, we use multiple comparisons' technique
             # to determine if this epsilon is good enough
             # For now we use false discovery rate
-            if not fdr(p_values, q):  # q = proportion of false positives we will accept
+            if not reject_null and not fdr(p_values, q):  # q = proportion of false positives we will accept
                 # We want no discovery (fail to reject null) for all n runs
                 # If we fail to reject the null, then we break the loop.
                 # The current epsilon is the one we choose
@@ -212,7 +218,7 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query: str,
 
 if __name__ == '__main__':
     csv_path = 'PUMS.csv'
-    df = pd.read_csv(csv_path).head(100)
+    df = pd.read_csv(csv_path)#.head(100)
     # print(df.head())
 
     query = "SELECT AVG(age) FROM PUMS.PUMS"

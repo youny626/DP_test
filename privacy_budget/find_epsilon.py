@@ -144,7 +144,7 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query: str,
 
         for eps in tqdm.tqdm(sorted_eps_to_test):
 
-            reject_null = False
+            # reject_null = False
             p_values = []
 
             # For each run, we compute the risks again
@@ -152,14 +152,16 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query: str,
 
             privacy = Privacy(epsilon=eps)
             private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
-            dp_result = private_reader.execute_df(query)
+            # dp_result = private_reader.execute_df(query)
 
             for j in tqdm.tqdm(range(num_runs)):
 
-                if reject_null:
-                    continue # this eps does not equalize risks, skip
+                # if reject_null:
+                #     continue # this eps does not equalize risks, skip
 
                 start_time = time.time()
+
+                dp_result = private_reader.execute_df(query) # better to compute a new DP result each run
 
                 # We get the same samples based on individuals who are present in the original chosen samples
                 # we only need to compute risks for those samples
@@ -193,8 +195,8 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query: str,
 
                 cur_res = stats.ks_2samp(new_risks1, new_risks2)
                 p_value = cur_res[1]
-                if p_value < 0.01:
-                    reject_null = True # early stopping
+                # if p_value < 0.01:
+                #     reject_null = True # early stopping
                 p_values.append(p_value)
 
                 elapsed = time.time() - start_time
@@ -203,7 +205,7 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query: str,
             # Now we have n p-values for the current epsilon, we use multiple comparisons' technique
             # to determine if this epsilon is good enough
             # For now we use false discovery rate
-            if not reject_null and not fdr(p_values, q):  # q = proportion of false positives we will accept
+            if not fdr(p_values, q):  # q = proportion of false positives we will accept
                 # We want no discovery (fail to reject null) for all n runs
                 # If we fail to reject the null, then we break the loop.
                 # The current epsilon is the one we choose

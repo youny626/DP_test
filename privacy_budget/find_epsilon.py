@@ -9,7 +9,6 @@ import warnings
 import snsql
 from snsql import Privacy
 from snsql._ast.expressions.date import parse_datetime
-from snsql.sql._mechanisms.accuracy import Accuracy
 from snsql._ast.expressions import sql as ast
 from snsql.sql.reader.base import SortKey
 from snsql._ast.ast import Top
@@ -91,7 +90,8 @@ def execute_rewritten_ast(private_reader, subquery, query, *ignore, accuracy: bo
 
     _accuracy = None
     if accuracy:
-        _accuracy = Accuracy(query, subquery, private_reader.privacy)
+        raise NotImplementedError(
+            "Simple accuracy has been removed.  Please see documentation for information on estimating accuracy.")
 
     syms = subquery._select_symbols
     source_col_names = [s.name for s in syms]
@@ -483,7 +483,7 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
 
 
 if __name__ == '__main__':
-    csv_path = 'PUMS.csv'
+    csv_path = '../PUMS.csv'
     df = pd.read_csv(csv_path)#.head(100)
     # print(df.head())
 
@@ -501,9 +501,3 @@ if __name__ == '__main__':
     print(f"total time: {elapsed} s")
 
     print(eps)
-
-# Successfully installed 
-# PyYAML==5.4.1 graphviz==0.17 numpy==1.23.3 opendp==0.4.0 pandas==1.5.0 pandasql==0.7.3 pytz==2022.2.1
-# sqlalchemy==1.4.41
-# PyYAML==5.4.1 antlr4-python3-runtime==4.9.3 graphviz==0.17 numpy==1.23.3 opendp==0.4.0 pandas==1.5.0
-# pandasql==0.7.3 python==dateutil==2.8.2 pytz==2022.2.1 six==1.16.0 smartnoise-sql==0.2.4 sqlalchemy==1.4.41

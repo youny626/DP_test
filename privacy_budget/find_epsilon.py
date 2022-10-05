@@ -56,26 +56,32 @@ def get_metadata(df: pd.DataFrame, name: str):
 
 
 def fdr(p_values, q):
-    # Based on https://matthew-brett.github.io/teaching/fdr.html
 
-    # q = 0.1 # proportion of false positives we will accept
-    N = len(p_values)
-    sorted_p_values = np.sort(p_values)  # sort p-values ascended
-    i = np.arange(1, N + 1)  # the 1-based i index of the p values, as in p(i)
-    below = (sorted_p_values < (q * i / N))  # True where p(i)<q*i/N
-    if len(np.where(below)[0]) == 0:
-        return False
-    max_below = np.max(np.where(below)[0])  # max index where p(i)<q*i/N
+    from statsmodels.stats.multitest import fdrcorrection
+    rejected, pvalue_corrected = fdrcorrection(p_values, alpha=q)
+    # print(any(rejected))
+    return any(rejected)
+
+    # # Based on https://matthew-brett.github.io/teaching/fdr.html
+    #
+    # # q = 0.1 # proportion of false positives we will accept
+    # N = len(p_values)
+    # sorted_p_values = np.sort(p_values)  # sort p-values ascended
+    # i = np.arange(1, N + 1)  # the 1-based i index of the p values, as in p(i)
+    # below = (sorted_p_values < (q * i / N))  # True where p(i)<q*i/N
+    # if len(np.where(below)[0]) == 0:
+    #     return False
+    # max_below = np.max(np.where(below)[0])  # max index where p(i)<q*i/N
     # print('p*:', sorted_p_values[max_below])
-
-    # num_discoveries = 0
-    for p in p_values:
-        if p < sorted_p_values[max_below]:
-            # print("Discovery: " + str(p))
-            return True
-            # num_discoveries += 1
-    # print("num_discoveries =", num_discoveries)
-    return False
+    #
+    # # num_discoveries = 0
+    # for p in p_values:
+    #     if p < sorted_p_values[max_below]:
+    #         print("Discovery: " + str(p))
+    #         return True
+    #         # num_discoveries += 1
+    # # print("num_discoveries =", num_discoveries)
+    # return False
 
 def execute_rewritten_ast(private_reader, subquery, query, *ignore, accuracy: bool = False, pre_aggregated=None, postprocess=True):
     # if isinstance(query, str):
@@ -349,9 +355,13 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
             private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
             cur_result = private_reader.reader.execute_df(query_string) # execute query without DP
             # print(type(private_reader.reader).__name__)
-
-            change = abs(cur_result - original_result).to_numpy().sum()
+            # change = abs(cur_result - original_result).to_numpy().sum()
+            change = abs(cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
+            # print(cur_result)
+            # print(original_risks)
+            # print(change)
             original_risks.append(change)
+
 
         # print(original_risks)
         elapsed = time.time() - start_time
@@ -360,23 +370,45 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
         # Select groups we want to equalize risks
         # for now use the default strategy - high risk (upper x% quantile) and low risk (lower x% quantile) group
         sorted_original_risks = list(np.sort(original_risks))
+        # print(sorted_original_risks)
         sorted_original_risks_idx = np.argsort(original_risks)
-        idx1 = sorted_original_risks.index(
-            np.percentile(sorted_original_risks, risk_group_percentile, interpolation='nearest'))
-        idx2 = sorted_original_risks.index(
-            np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest'))
-        if idx1 > idx2:
-            idx1, idx2 = idx2, idx1
-        # print(idx1, idx2)
+        # idx1 = sorted_original_risks.index(
+        #     np.percentile(sorted_original_risks, risk_group_percentile, interpolation='nearest'))
 
-        # sample1 = sorted_original_risks[:idx1]
-        # sample2 = sorted_original_risks[idx2:]
-        sample_idx1 = sorted_original_risks_idx[:idx1]
+        if risk_group_percentile > 50:
+            risk_group_percentile = 100 - risk_group_percentile
+
+        val1 = np.percentile(sorted_original_risks, risk_group_percentile, interpolation='nearest')
+        # last index of val1
+        idx1 = max(loc for loc, val in enumerate(sorted_original_risks) if abs(val - val1) <= 10e-8)
+
+        # idx2 = sorted_original_risks.index(
+        #     np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest'))
+        val2 = np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest')
+        # first index of val2
+        idx2 = sorted_original_risks.index(val2)
+
+        print(val1, val2)
+        # if idx1 > idx2:
+        #     idx1, idx2 = idx2, idx1
+        # print(idx1, idx2)
+        # idx1 = 9
+        # idx2 = 20
+
+        sample1 = sorted_original_risks[:idx1+1]
+        sample2 = sorted_original_risks[idx2:]
+        print(sample1)
+        print(sample2)
+        sample_idx1 = sorted_original_risks_idx[:idx1+1]
         sample_idx2 = sorted_original_risks_idx[idx2:]
+        # print(sample_idx1, sample_idx2)
 
         # Check whether the samples come from the same distribution (null hypothesis)
         # Reject the null if p-value is less than some threshold
         # for now we don't care even if the samples already come from the same distribution
+        res = stats.ks_2samp(sample1, sample2)
+        p_value = res[1]
+        print(f"p_value: {p_value}")
 
         # Now we test different epsilons
         # For each epsilon, we run n times, with the goal of finding the largest epsilon
@@ -437,7 +469,9 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
                     cur_result = execute_rewritten_ast(private_reader, subquery, query)
                     cur_result = private_reader._to_df(cur_result)
 
-                    change = abs(cur_result - dp_result).to_numpy().sum()
+                    # change = abs(cur_result - dp_result).to_numpy().sum()
+                    change = abs(cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
+
                     new_risks1.append(change)
 
                 for i in sample_idx2:
@@ -447,21 +481,27 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
                     cur_result = execute_rewritten_ast(private_reader, subquery, query)
                     cur_result = private_reader._to_df(cur_result)
 
-                    change = abs(cur_result - dp_result).to_numpy().sum()
+                    # change = abs(cur_result - dp_result).to_numpy().sum()
+                    change = abs(cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
+
                     new_risks2.append(change)
 
                 elapsed = time.time() - start_time
-                print(f"{j}th compute risk time: {elapsed} s")
+                # print(f"{j}th compute risk time: {elapsed} s")
                 compute_risk_time += elapsed
 
                 # We perform the test and record the p-value for each run
                 start_time = time.time()
 
-                cur_res = stats.ks_2samp(new_risks1, new_risks2)
+                cur_res = stats.ks_2samp(new_risks1, new_risks2)#, method="exact")
                 p_value = cur_res[1]
                 # if p_value < 0.01:
                 #     reject_null = True # early stopping
                 p_values.append(p_value)
+
+                print(new_risks1)
+                print(new_risks2)
+                print(f"p_value: {p_value}")
 
                 elapsed = time.time() - start_time
                 test_equal_distrbution_time += elapsed
@@ -469,6 +509,7 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
             # Now we have n p-values for the current epsilon, we use multiple comparisons' technique
             # to determine if this epsilon is good enough
             # For now we use false discovery rate
+            print(p_values)
             if not fdr(p_values, q):  # q = proportion of false positives we will accept
                 # We want no discovery (fail to reject null) for all n runs
                 # If we fail to reject the null, then we break the loop.
@@ -483,20 +524,29 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
 
 
 if __name__ == '__main__':
-    csv_path = '../PUMS.csv'
-    df = pd.read_csv(csv_path)#.head(100)
+    # csv_path = '../PUMS.csv'
+    # df = pd.read_csv(csv_path)#.head(100)
     # print(df.head())
+    df = pd.read_csv("adult.csv")
+    df = df[["age", "education", "education.num", "race", "income"]]
+    df.rename(columns={'education.num': 'education_num'}, inplace=True)
+    df = df.sample(30, random_state=0, ignore_index=True)
+    # print(df)
 
-    query_string = "SELECT AVG(age) FROM PUMS.PUMS"
+    query_string = "SELECT COUNT(*) FROM adult.adult WHERE education_num >= 13 AND income == '>50K'"
+    # query_string = "SELECT AVG(age) FROM adult.adult WHERE income == '>50K'"
+    # query_string = "SELECT AVG(age) FROM adult.adult GROUP BY race"
 
     # design epsilons to test in a way that smaller eps are more frequent and largest eps are less
-    eps_list = list(np.arange(0.01, 0.1, 0.01, dtype=float))
-    eps_list += list(np.arange(0.1, 1.1, 0.1, dtype=float))
+    # eps_list = list(np.arange(0.01, 0.1, 0.01, dtype=float))
+    # eps_list += list(np.arange(0.1, 1.1, 0.1, dtype=float))
     # eps_list += list(np.arange(1, 11, 1, dtype=float))
-    print(eps_list)
+    # eps_list += list(np.arange(10, 101, 10, dtype=float))
+    eps_list = [1.0, 10.0, 100.0]
+    # print(eps_list)
 
     start_time = time.time()
-    eps = find_epsilon(df, "PUMS", query_string, 90, eps_list, 10, 0.05)
+    eps = find_epsilon(df, "adult", query_string, 10, eps_list, 10, 0.05)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

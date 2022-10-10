@@ -1,4 +1,5 @@
 import itertools
+import re
 
 import numpy as np
 import pandas as pd
@@ -17,7 +18,7 @@ from snsql._ast.ast import Top
 def get_metadata(df: pd.DataFrame, name: str):
     metadata = {}
     metadata[name] = {}  # collection
-    metadata[name][name] = {}  # schema
+    metadata[name][name] = {}  # db
     metadata[name][name][name] = {}  # table
 
     t = metadata[name][name][name]
@@ -341,31 +342,75 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
         privacy = Privacy(epsilon=np.inf, delta=0)  # no privacy
         metadata = get_metadata(df, data_name)
 
+        # query_string = "SELECT COUNT(*) from adult.adult"
+        # query_string = "SELECT race, COUNT(*) FROM adult.adult WHERE education_num >= 13 GROUP BY race"
+
+        query_check = re.search(pattern="SELECT\s.*\(.*\)\sFROM\s.*",
+                        string=query_string,
+                        flags=re.IGNORECASE)
+        if query_check is not None:
+            pos = query_string.rfind(")") # last pos of )
+            assert pos > -1
+            # print(pos)
+
+            window = " OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW) AS res "
+            query_string_window = query_string[:pos+1] + window + query_string[pos+2:]
+
+            query_string = query_string[:pos+1] + " AS res " + query_string[pos+2:]
+            print(query_string)
+            print(query_string_window)
+        else:
+            print("Query in wrong format")
+            return None
+
         private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
         original_result = private_reader.reader.execute_df(query_string)
+        print("original_result")
+        print(original_result)
 
-        # Compute the original privacy risks
-        original_risks = []
         dfs_one_off = []  # cache
         for i in range(len(df)):
             cur_df = df.copy()
             cur_df = cur_df.drop([i])
             dfs_one_off.append(cur_df)
 
-            private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
-            cur_result = private_reader.reader.execute_df(query_string) # execute query without DP
-            # print(type(private_reader.reader).__name__)
-            # change = abs(cur_result - original_result).to_numpy().sum()
-            change = abs(cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
-            # print(cur_result)
-            # print(original_risks)
-            # print(change)
-            original_risks.append(change)
+        has_group_by = re.search(pattern="GROUP BY", string=query_string, flags=re.IGNORECASE)
+        if has_group_by is None:
+            # query_string_window = "SELECT DISTINCT race, COUNT(*) OVER (win ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW) AS res FROM adult.adult WHERE education_num >= 13 WINDOW win AS (PARTITION BY race)"
+
+            private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
+            window_result = private_reader.reader.execute_df(query_string_window)
+            print("window_result")
+            print(window_result)
+
+            original_risks = abs(window_result["res"].to_numpy() - original_result["res"].to_numpy())
+            print(original_risks)
+        else:
+            # Compute the original privacy risks
+            original_risks = []
+            # dfs_one_off = []  # cache
+            for i in range(len(df)):
+                # cur_df = df.copy()
+                # cur_df = cur_df.drop([i])
+                # dfs_one_off.append(cur_df)
+                cur_df = dfs_one_off[i]
+
+                private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
+                cur_result = private_reader.reader.execute_df(query_string) # execute query without DP
+                # print(type(private_reader.reader).__name__)
+                # change = abs(cur_result - original_result).to_numpy().sum()
+                change = abs(cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
+                # print(cur_result)
+                # print(original_result)
+                # print(change)
+                original_risks.append(change)
 
 
         # print(original_risks)
         elapsed = time.time() - start_time
         print(f"time to compute original risk: {elapsed} s")
+
+        # return None
 
         # Select groups we want to equalize risks
         # for now use the default strategy - high risk (upper x% quantile) and low risk (lower x% quantile) group
@@ -388,17 +433,15 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
         # first index of val2
         idx2 = sorted_original_risks.index(val2)
 
-        print(val1, val2)
+        # print(val1, val2)
         # if idx1 > idx2:
         #     idx1, idx2 = idx2, idx1
-        # print(idx1, idx2)
-        # idx1 = 9
-        # idx2 = 20
+        print(idx1, idx2)
 
         sample1 = sorted_original_risks[:idx1+1]
         sample2 = sorted_original_risks[idx2:]
-        print(sample1)
-        print(sample2)
+        # print(sample1)
+        # print(sample2)
         sample_idx1 = sorted_original_risks_idx[:idx1+1]
         sample_idx2 = sorted_original_risks_idx[idx2:]
         # print(sample_idx1, sample_idx2)
@@ -406,9 +449,9 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
         # Check whether the samples come from the same distribution (null hypothesis)
         # Reject the null if p-value is less than some threshold
         # for now we don't care even if the samples already come from the same distribution
-        res = stats.ks_2samp(sample1, sample2)
-        p_value = res[1]
-        print(f"p_value: {p_value}")
+        # res = stats.ks_2samp(sample1, sample2)
+        # p_value = res[1]
+        # print(f"p_value: {p_value}")
 
         # Now we test different epsilons
         # For each epsilon, we run n times, with the goal of finding the largest epsilon
@@ -499,9 +542,9 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
                 #     reject_null = True # early stopping
                 p_values.append(p_value)
 
-                print(new_risks1)
-                print(new_risks2)
-                print(f"p_value: {p_value}")
+                # print(new_risks1)
+                # print(new_risks2)
+                # print(f"p_value: {p_value}")
 
                 elapsed = time.time() - start_time
                 test_equal_distrbution_time += elapsed
@@ -517,6 +560,11 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
                 best_eps = eps
                 break
 
+            # TODO: if we find a lot of discoveries (a lot of small p-values),
+            #  we can skip epsilons that are close to the current eps (ex. 10 to 9).
+            #  If there's only a few discoveries,
+            #  we should probe epsilons that are close (10 to 9.9)
+
         print(f"total time to compute new risk: {compute_risk_time} s")
         print(f"total time to test equal distribution: {test_equal_distrbution_time} s")
 
@@ -527,22 +575,29 @@ if __name__ == '__main__':
     # csv_path = '../PUMS.csv'
     # df = pd.read_csv(csv_path)#.head(100)
     # print(df.head())
-    df = pd.read_csv("adult.csv")
-    df = df[["age", "education", "education.num", "race", "income"]]
+    # df = pd.read_csv("adult.csv")
+    # df = df[["age", "education", "education.num", "race", "income"]]
+    # df.rename(columns={'education.num': 'education_num'}, inplace=True)
+    # df = df.sample(100, random_state=0, ignore_index=True)
+    df = pd.read_csv("adult_100_sample.csv")
     df.rename(columns={'education.num': 'education_num'}, inplace=True)
-    df = df.sample(30, random_state=0, ignore_index=True)
     # print(df)
 
-    query_string = "SELECT COUNT(*) FROM adult.adult WHERE education_num >= 13 AND income == '>50K'"
+    # size = 100, eps = 2.0
+    # query_string = "SELECT COUNT(*) FROM adult.adult WHERE education_num >= 13 AND income == '>50K'"
+    # size = 100, eps = 10.0
     # query_string = "SELECT AVG(age) FROM adult.adult WHERE income == '>50K'"
-    # query_string = "SELECT AVG(age) FROM adult.adult GROUP BY race"
+    # size = 100, eps = 1.0
+    query_string = "SELECT race, COUNT(*) FROM adult.adult WHERE education_num >= 13 GROUP BY race"
+    # TODO: for group by query, the group by column needs to be string values
+    # query_string = "SELECT AVG(age) from PUMS.PUMS"
 
     # design epsilons to test in a way that smaller eps are more frequent and largest eps are less
-    # eps_list = list(np.arange(0.01, 0.1, 0.01, dtype=float))
-    # eps_list += list(np.arange(0.1, 1.1, 0.1, dtype=float))
-    # eps_list += list(np.arange(1, 11, 1, dtype=float))
+    eps_list = list(np.arange(0.01, 0.1, 0.01, dtype=float))
+    eps_list += list(np.arange(0.1, 1.1, 0.1, dtype=float))
+    eps_list += list(np.arange(1, 11, 1, dtype=float))
     # eps_list += list(np.arange(10, 101, 10, dtype=float))
-    eps_list = [1.0, 10.0, 100.0]
+    # eps_list = [10.0]
     # print(eps_list)
 
     start_time = time.time()

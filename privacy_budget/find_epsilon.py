@@ -57,7 +57,6 @@ def get_metadata(df: pd.DataFrame, name: str):
 
 
 def fdr(p_values, q):
-
     from statsmodels.stats.multitest import fdrcorrection
     rejected, pvalue_corrected = fdrcorrection(p_values, alpha=q)
     # print(any(rejected))
@@ -84,7 +83,9 @@ def fdr(p_values, q):
     # # print("num_discoveries =", num_discoveries)
     # return False
 
-def execute_rewritten_ast(private_reader, subquery, query, *ignore, accuracy: bool = False, pre_aggregated=None, postprocess=True):
+
+def execute_rewritten_ast(private_reader, subquery, query, *ignore, accuracy: bool = False, pre_aggregated=None,
+                          postprocess=True):
     # if isinstance(query, str):
     #     raise ValueError("Please pass AST to _execute_ast.")
     # 
@@ -329,6 +330,80 @@ def execute_rewritten_ast(private_reader, subquery, query, *ignore, accuracy: bo
         return out_rows
 
 
+def compute_original_risks(df: pd.DataFrame, query_string: str, metadata: dict, dfs_one_off: list):
+    privacy = Privacy(epsilon=np.inf, delta=0)  # no privacy
+
+    # query_string = "SELECT COUNT(*) from adult.adult"
+    # query_string = "SELECT race, COUNT(*) FROM adult.adult WHERE education_num >= 13 GROUP BY race"
+
+    query_check = re.search(pattern="SELECT\s.*\(.*\)\sFROM\s.*",
+                            string=query_string,
+                            flags=re.IGNORECASE)
+    if query_check is not None:
+        pos = query_string.rfind(")")  # last pos of )
+        assert pos > -1
+        # print(pos)
+
+        window = " OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW) AS res "
+        query_string_window = query_string[:pos + 1] + window + query_string[pos + 2:]
+
+        query_string = query_string[:pos + 1] + " AS res " + query_string[pos + 2:]
+        print(query_string)
+        print(query_string_window)
+    else:
+        print("Query in wrong format")
+        return None
+
+    private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
+    original_result = private_reader.reader.execute_df(query_string)
+    print("original_result")
+    print(original_result)
+
+    has_group_by = re.search(pattern="GROUP BY", string=query_string, flags=re.IGNORECASE)
+    if has_group_by is None:
+        # query_string_window = "SELECT DISTINCT race, COUNT(*) OVER (win ROWS BETWEEN UNBOUNDED PRECEDING AND
+        # UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW) AS res FROM adult.adult WHERE education_num >= 13 WINDOW win AS (
+        # PARTITION BY race)"
+        # query_string_window = "SELECT DISTINCT race, COUNT(*) OVER (PARTITION BY race ROWS BETWEEN UNBOUNDED
+        # PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW) AS res FROM adult.adult WHERE education_num >= 13"
+        # query_string_window = "SELECT DISTINCT race, COUNT(*) OVER win FROM adult.adult WINDOW win AS (ROWS BETWEEN
+        # UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW)"
+        # query_string_window = "SELECT DISTINCT race, COUNT(*) OVER (PARTITION BY race) AS res FROM adult.adult
+        # WHERE education_num >= 13"
+        # query_string_window = "SELECT race, COUNT(*) FROM adult.adult WHERE row_num != 0 GROUP BY race; SELECT
+        # race, " \
+        #                       "COUNT(*) FROM adult.adult WHERE row_num != 1 GROUP BY race"
+
+        private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
+        window_result = private_reader.reader.execute_df(query_string_window)
+        print("window_result")
+        print(window_result)
+
+        original_risks = abs(window_result["res"].to_numpy() - original_result["res"].to_numpy())
+        print(original_risks)
+    else:
+        # Compute the original privacy risks
+        original_risks = []
+        # dfs_one_off = []  # cache
+        for i in range(len(df)):
+            # cur_df = df.copy()
+            # cur_df = cur_df.drop([i])
+            # dfs_one_off.append(cur_df)
+            cur_df = dfs_one_off[i]
+
+            private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
+            cur_result = private_reader.reader.execute_df(query_string)  # execute query without DP
+            # print(type(private_reader.reader).__name__)
+            # change = abs(cur_result - original_result).to_numpy().sum()
+            change = abs(cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
+            # print(cur_result)
+            # print(original_result)
+            # print(change)
+            original_risks.append(change)
+
+    return original_risks, original_result
+
+
 def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
                  risk_group_percentile: int,
                  eps_to_test: list,
@@ -339,72 +414,15 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
 
         start_time = time.time()
 
-        privacy = Privacy(epsilon=np.inf, delta=0)  # no privacy
-        metadata = get_metadata(df, data_name)
-
-        # query_string = "SELECT COUNT(*) from adult.adult"
-        # query_string = "SELECT race, COUNT(*) FROM adult.adult WHERE education_num >= 13 GROUP BY race"
-
-        query_check = re.search(pattern="SELECT\s.*\(.*\)\sFROM\s.*",
-                        string=query_string,
-                        flags=re.IGNORECASE)
-        if query_check is not None:
-            pos = query_string.rfind(")") # last pos of )
-            assert pos > -1
-            # print(pos)
-
-            window = " OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW) AS res "
-            query_string_window = query_string[:pos+1] + window + query_string[pos+2:]
-
-            query_string = query_string[:pos+1] + " AS res " + query_string[pos+2:]
-            print(query_string)
-            print(query_string_window)
-        else:
-            print("Query in wrong format")
-            return None
-
-        private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
-        original_result = private_reader.reader.execute_df(query_string)
-        print("original_result")
-        print(original_result)
-
         dfs_one_off = []  # cache
         for i in range(len(df)):
             cur_df = df.copy()
             cur_df = cur_df.drop([i])
             dfs_one_off.append(cur_df)
 
-        has_group_by = re.search(pattern="GROUP BY", string=query_string, flags=re.IGNORECASE)
-        if has_group_by is None:
-            # query_string_window = "SELECT DISTINCT race, COUNT(*) OVER (win ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING EXCLUDE CURRENT ROW) AS res FROM adult.adult WHERE education_num >= 13 WINDOW win AS (PARTITION BY race)"
+        metadata = get_metadata(df, data_name)
 
-            private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
-            window_result = private_reader.reader.execute_df(query_string_window)
-            print("window_result")
-            print(window_result)
-
-            original_risks = abs(window_result["res"].to_numpy() - original_result["res"].to_numpy())
-            print(original_risks)
-        else:
-            # Compute the original privacy risks
-            original_risks = []
-            # dfs_one_off = []  # cache
-            for i in range(len(df)):
-                # cur_df = df.copy()
-                # cur_df = cur_df.drop([i])
-                # dfs_one_off.append(cur_df)
-                cur_df = dfs_one_off[i]
-
-                private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
-                cur_result = private_reader.reader.execute_df(query_string) # execute query without DP
-                # print(type(private_reader.reader).__name__)
-                # change = abs(cur_result - original_result).to_numpy().sum()
-                change = abs(cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
-                # print(cur_result)
-                # print(original_result)
-                # print(change)
-                original_risks.append(change)
-
+        original_risks, original_result = compute_original_risks(df, query_string, metadata, dfs_one_off)
 
         # print(original_risks)
         elapsed = time.time() - start_time
@@ -438,11 +456,11 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
         #     idx1, idx2 = idx2, idx1
         print(idx1, idx2)
 
-        sample1 = sorted_original_risks[:idx1+1]
+        sample1 = sorted_original_risks[:idx1 + 1]
         sample2 = sorted_original_risks[idx2:]
         # print(sample1)
         # print(sample2)
-        sample_idx1 = sorted_original_risks_idx[:idx1+1]
+        sample_idx1 = sorted_original_risks_idx[:idx1 + 1]
         sample_idx2 = sorted_original_risks_idx[idx2:]
         # print(sample_idx1, sample_idx2)
 
@@ -536,7 +554,7 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
                 # We perform the test and record the p-value for each run
                 start_time = time.time()
 
-                cur_res = stats.ks_2samp(new_risks1, new_risks2)#, method="exact")
+                cur_res = stats.ks_2samp(new_risks1, new_risks2)  # , method="exact")
                 p_value = cur_res[1]
                 # if p_value < 0.01:
                 #     reject_null = True # early stopping
@@ -581,6 +599,7 @@ if __name__ == '__main__':
     # df = df.sample(100, random_state=0, ignore_index=True)
     df = pd.read_csv("adult_100_sample.csv")
     df.rename(columns={'education.num': 'education_num'}, inplace=True)
+    # df["row_num"] = df.reset_index().index
     # print(df)
 
     # size = 100, eps = 2.0

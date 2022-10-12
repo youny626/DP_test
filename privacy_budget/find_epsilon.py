@@ -1,4 +1,5 @@
 import itertools
+import random
 import re
 
 import numpy as np
@@ -13,6 +14,8 @@ from snsql._ast.expressions.date import parse_datetime
 from snsql._ast.expressions import sql as ast
 from snsql.sql.reader.base import SortKey
 from snsql._ast.ast import Top
+from sqlalchemy import create_engine
+from pandas.io.sql import to_sql, read_sql
 
 
 def get_metadata(df: pd.DataFrame, name: str):
@@ -84,7 +87,8 @@ def fdr(p_values, q):
     # return False
 
 
-def execute_rewritten_ast(private_reader, subquery, query, *ignore, accuracy: bool = False, pre_aggregated=None,
+def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to_exclude,
+                          private_reader, subquery, query, *ignore, accuracy: bool = False, pre_aggregated=None,
                           postprocess=True):
     # if isinstance(query, str):
     #     raise ValueError("Please pass AST to _execute_ast.")
@@ -94,7 +98,38 @@ def execute_rewritten_ast(private_reader, subquery, query, *ignore, accuracy: bo
     if pre_aggregated is not None:
         exact_aggregates = private_reader._check_pre_aggregated_columns(pre_aggregated, subquery)
     else:
-        exact_aggregates = private_reader._get_reader(subquery)._execute_ast(subquery)
+        # exact_aggregates = private_reader._get_reader(subquery)._execute_ast(subquery)
+        reader = private_reader._get_reader(subquery)
+        # if isinstance(query, str):
+        #     raise ValueError("Please pass ASTs to execute_ast.  To execute strings, use execute.")
+        if hasattr(reader, "serializer") and reader.serializer is not None:
+            query_string = reader.serializer.serialize(subquery)
+        else:
+            query_string = str(subquery)
+        # exact_aggregates = reader.execute(query_string, accuracy=accuracy)
+
+        # print(read_sql(sql=f"SELECT * FROM {table_name}", con=sqlite_connection))
+
+        # print(query_string)
+        query_string = re.sub(f" FROM {table_name}.{table_name}", f" FROM {table_name}", query_string,
+                       flags=re.IGNORECASE)
+
+        pos = query_string.rfind(" WHERE ")  # last pos of WHERE
+        if pos == -1:
+            # query_string = f"{query_string} WHERE {row_num_col} != {row_num_to_exclude}"
+            pos2 = query_string.rfind(f" FROM {table_name}")
+            pos2 += len(f" FROM {table_name}")
+            query_string = query_string[:pos2] + f" WHERE {row_num_col} != {row_num_to_exclude} " + query_string[pos2:]
+        else:
+            # print(pos)
+            pos += len(" WHERE ")
+            # print(query_string[:pos])
+            query_string = query_string[:pos] + f"{row_num_col} != {row_num_to_exclude} AND " + query_string[pos:]
+
+        # print(query_string)
+        q_result = read_sql(sql=query_string, con=sqlite_connection)
+        # print(q_result)
+        exact_aggregates = [tuple([col for col in q_result.columns])] + [val[1:] for val in q_result.itertuples()]
 
     _accuracy = None
     if accuracy:
@@ -404,7 +439,18 @@ def compute_original_risks(df: pd.DataFrame, query_string: str, metadata: dict, 
     return original_risks, original_result
 
 
-def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
+def extract_table_names(query):
+    """ Extract table names from an SQL query. """
+    # a good old fashioned regex. turns out this worked better than actually parsing the code
+    tables_blocks = re.findall(r'(?:FROM|JOIN)\s+(\w+(?:\s*,\s*\w+)*)', query, re.IGNORECASE)
+    tables = [tbl
+              for block in tables_blocks
+              for tbl in re.findall(r'\w+', block)]
+    return set(tables)
+
+
+def find_epsilon(df: pd.DataFrame,
+                 query_string: str,
                  risk_group_percentile: int,
                  eps_to_test: list,
                  num_runs: int,
@@ -412,17 +458,88 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
     with warnings.catch_warnings():
         warnings.simplefilter(action="ignore")
 
+        table_names = extract_table_names(query_string)
+        if len(table_names) != 1:
+            print("error: can only query on one table")
+            return None
+        table_name = table_names.pop()
+        # print(table_name)
+
         start_time = time.time()
 
-        dfs_one_off = []  # cache
-        for i in range(len(df)):
-            cur_df = df.copy()
-            cur_df = cur_df.drop([i])
-            dfs_one_off.append(cur_df)
+        # dfs_one_off = []  # cache
+        # for i in range(len(df)):
+        #     cur_df = df.copy()
+        #     cur_df = cur_df.drop([i])
+        #     dfs_one_off.append(cur_df)
 
-        metadata = get_metadata(df, data_name)
+        metadata = get_metadata(df, table_name)
 
-        original_risks, original_result = compute_original_risks(df, query_string, metadata, dfs_one_off)
+        # original_risks, original_result = compute_original_risks(df, query_string, metadata, dfs_one_off)
+
+        engine = create_engine("sqlite:///:memory:")
+
+        sqlite_connection = engine.connect()
+
+        df_copy = df.copy()
+
+        # just needed to create a row_num col that doesn't already exist
+        row_num_col = f"row_num_{random.randint(0, 10000)}"
+        while row_num_col in df_copy.columns:
+            row_num_col = f"row_num_{random.randint(0, 10000)}"
+        df_copy[row_num_col] = df_copy.reset_index().index
+
+        num_rows = to_sql(df_copy, name=table_name, con=sqlite_connection,
+                             index=not any(name is None for name in df_copy.index.names),
+                             if_exists="replace")  # load index into db if all levels are named
+        if num_rows != len(df_copy):
+            print("error when loading to sqlite")
+            return None
+
+        # table_names = engine.table_names(connection=sqlite_connection)
+        # print(table_names)
+
+        original_result = read_sql(sql=query_string, con=sqlite_connection)
+        # res = [tuple([col for col in q_result.columns])] + [val[1:] for val in q_result.itertuples()]
+        print("original_result")
+        print(original_result)
+        # print(res)
+
+        if len(original_result.select_dtypes(include=np.number).columns) > 1:
+            print("error: can only have one numerical column in the query result")
+            return None
+
+        # print(read_sql(sql=f"SELECT * FROM {table_name}", con=sqlite_connection))
+
+        original_risks = []
+
+        query_string = re.sub(f" WHERE ", f" WHERE ", query_string, flags=re.IGNORECASE)
+        query_string = re.sub(f" FROM ", f" FROM ", query_string, flags=re.IGNORECASE)
+
+        pos = query_string.rfind(" WHERE ")  # last pos of WHERE
+        no_where_clause = False
+        if pos == -1:
+            no_where_clause = True
+            pos2 = query_string.rfind(f" FROM {table_name}")
+            # print(query_string)
+            # print(pos2)
+        else:
+            pos += len(" WHERE ")
+
+        for i in range(len(df_copy)):
+
+            if no_where_clause:
+                pos2 += len(f" FROM {table_name}")
+                cur_query = query_string[:pos2] + f" WHERE {row_num_col} != {i} " + query_string[pos2:]
+            else:
+                cur_query = query_string[:pos] + f"{row_num_col} != {i} AND " + query_string[pos:]
+
+            # print(cur_query)
+            cur_result = read_sql(sql=cur_query, con=sqlite_connection)
+            # print(cur_result)
+
+            change = abs(cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
+            original_risks.append(change)
 
         # print(original_risks)
         elapsed = time.time() - start_time
@@ -486,6 +603,9 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
         compute_risk_time = 0.0
         test_equal_distrbution_time = 0.0
 
+        # query_string = query_string.replace(f" {table_name} ", f" {table_name}.{table_name} ")
+        query_string = re.sub(f" FROM {table_name}", f" FROM {table_name}.{table_name}", query_string, flags=re.IGNORECASE)
+
         for eps in tqdm.tqdm(sorted_eps_to_test):
 
             # reject_null = False
@@ -495,12 +615,15 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
             # New risk = DP result - DP result when removing one record
 
             privacy = Privacy(epsilon=eps)
-            private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
+            private_reader = snsql.from_df(df_copy, metadata=metadata, privacy=privacy)
             # dp_result = private_reader.execute_df(query)
             # rewrite the query ast once for every epsilon
             # TODO: might be able to do it once if epsilon is not involved in rewriting
             query_ast = private_reader.parse_query_string(query_string)
+            # print(query_ast)
             subquery, query = private_reader._rewrite_ast(query_ast)
+            # print(subquery)
+            # print(query)
 
             for j in tqdm.tqdm(range(num_runs)):
 
@@ -513,7 +636,7 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
                 # dp_result = private_reader.execute_df(query)
                 # query_ast = private_reader.parse_query_string(query_string)
                 # subquery, query = private_reader._rewrite_ast(query_ast)
-                dp_result = execute_rewritten_ast(private_reader, subquery, query)
+                dp_result = execute_rewritten_ast(sqlite_connection, table_name, row_num_col, -1, private_reader, subquery, query)
                 dp_result = private_reader._to_df(dp_result)
                 # print(dp_result)
 
@@ -523,11 +646,12 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
                 new_risks2 = []
 
                 for i in sample_idx1:
-                    cur_df = dfs_one_off[i]
+                    # cur_df = dfs_one_off[i]
 
-                    private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
+                    # private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
                     # cur_result = private_reader.execute_df(query)
-                    cur_result = execute_rewritten_ast(private_reader, subquery, query)
+
+                    cur_result = execute_rewritten_ast(sqlite_connection, table_name, row_num_col, i, private_reader, subquery, query)
                     cur_result = private_reader._to_df(cur_result)
 
                     # change = abs(cur_result - dp_result).to_numpy().sum()
@@ -536,10 +660,10 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
                     new_risks1.append(change)
 
                 for i in sample_idx2:
-                    cur_df = dfs_one_off[i]
+                    # cur_df = dfs_one_off[i]
 
-                    private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
-                    cur_result = execute_rewritten_ast(private_reader, subquery, query)
+                    # private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
+                    cur_result = execute_rewritten_ast(sqlite_connection, table_name, row_num_col, i, private_reader, subquery, query)
                     cur_result = private_reader._to_df(cur_result)
 
                     # change = abs(cur_result - dp_result).to_numpy().sum()
@@ -586,6 +710,8 @@ def find_epsilon(df: pd.DataFrame, data_name: str, query_string: str,
         print(f"total time to compute new risk: {compute_risk_time} s")
         print(f"total time to test equal distribution: {test_equal_distrbution_time} s")
 
+        sqlite_connection.close()
+
         return best_eps
 
 
@@ -603,13 +729,12 @@ if __name__ == '__main__':
     # print(df)
 
     # size = 100, eps = 2.0
-    # query_string = "SELECT COUNT(*) FROM adult.adult WHERE education_num >= 13 AND income == '>50K'"
+    # query_string = "SELECT COUNT(*) FROM adult WHERE education_num >= 13 AND income == '>50K'"
     # size = 100, eps = 10.0
-    # query_string = "SELECT AVG(age) FROM adult.adult WHERE income == '>50K'"
+    # query_string = "SELECT AVG(age) FROM adult WHERE income == '>50K'"
     # size = 100, eps = 1.0
-    query_string = "SELECT race, COUNT(*) FROM adult.adult WHERE education_num >= 13 GROUP BY race"
-    # TODO: for group by query, the group by column needs to be string values
-    # query_string = "SELECT AVG(age) from PUMS.PUMS"
+    query_string = "SELECT race, COUNT(*) FROM adult WHERE education_num >= 13 GROUP BY race"
+    # query_string = "SELECT AVG(age) from PUMS"
 
     # design epsilons to test in a way that smaller eps are more frequent and largest eps are less
     eps_list = list(np.arange(0.01, 0.1, 0.01, dtype=float))
@@ -620,7 +745,7 @@ if __name__ == '__main__':
     # print(eps_list)
 
     start_time = time.time()
-    eps = find_epsilon(df, "adult", query_string, 10, eps_list, 10, 0.05)
+    eps = find_epsilon(df, query_string, 10, eps_list, 10, 0.05)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

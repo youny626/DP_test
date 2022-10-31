@@ -221,7 +221,7 @@ if __name__ == '__main__':
     data = df_one_hot.values.tolist()
     # print(data)
 
-    f = open("log.txt")
+    f = open("log.txt", "w")
 
     crypte = CrypteTest(crypte_attrs, epsilon)
     start = time.time()

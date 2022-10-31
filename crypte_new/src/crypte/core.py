@@ -421,3 +421,8 @@ class AS:
             z = gen_laplace_once((eps / sens), k)
             enc_z = lab_encrypt_vector(self.pk, z)
             return lab_add_vector(x, enc_z)
+
+    def laplace_distort_vector(self, sens, eps, k, x):
+        z = gen_laplace_once((eps / sens), k)
+        enc_z = lab_encrypt_vector(self.pk, z)
+        return lab_add_vector(x, enc_z)

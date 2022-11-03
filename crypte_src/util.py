@@ -14,13 +14,13 @@ import phe.paillier as paillier
 from dataclasses import dataclass
 
 
-#Generate random data point with one-hot-encoding format
+#Generate random cdata point with one-hot-encoding format
 def generate_random_data(*args):
     c = sum(args)
     return  [random.randint(0,1) for i in range(c)] 
     
-#data = generate_random_data(10,11,12,15)
-#print(data)
+#cdata = generate_random_data(10,11,12,15)
+#print(cdata)
     
 
 def time_method(method, *args):

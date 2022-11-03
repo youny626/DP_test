@@ -40,7 +40,7 @@ class TestClient(unittest.TestCase):
         cs.reg_eps(1.0)
         pk, sk = cs.derive_key()
         
-        #set up AS, pk and init data
+        #set up AS, pk and init cdata
         x = Cdata(attr=[2,5,2])
         x.set_pk(pk)
         c = pro.lab_encrypt_vector(pk, data)
@@ -49,7 +49,7 @@ class TestClient(unittest.TestCase):
         a.set_key(pk)
         a.load_data(x)
         
-        # simulate client upload data
+        # simulate client upload cdata
         a.insert_to_db(c)
         a.insert_to_db(c)
         a.insert_to_db(c)
@@ -71,7 +71,7 @@ class TestClient(unittest.TestCase):
         cs.reg_eps(1.0)
         pk, sk = cs.derive_key()
         
-        #set up AS, pk and init data
+        #set up AS, pk and init cdata
         x = Cdata(attr=[2,5,2])
         x.set_pk(pk)
         c = pro.lab_encrypt_vector(pk, data)
@@ -80,7 +80,7 @@ class TestClient(unittest.TestCase):
         a.set_key(pk)
         a.load_data(x)
         
-        # simulate client upload data
+        # simulate client upload cdata
         a.insert_to_db(c)
         a.insert_to_db(c)
         a.insert_to_db(c)
@@ -106,7 +106,7 @@ class TestClient(unittest.TestCase):
         cs.reg_eps(1.0)
         pk, sk = cs.derive_key()
         
-        #set up AS, pk and init data
+        #set up AS, pk and init cdata
         x = Cdata(attr=[2,5,2])
         x.set_pk(pk)
         c = pro.lab_encrypt_vector(pk, data)
@@ -115,7 +115,7 @@ class TestClient(unittest.TestCase):
         a.set_key(pk)
         a.load_data(x)
         
-        # simulate client upload data
+        # simulate client upload cdata
         a.insert_to_db(c)
         a.insert_to_db(c)
         a.insert_to_db(c)
@@ -135,7 +135,7 @@ class TestClient(unittest.TestCase):
         cs.reg_eps(1.0)
         pk, sk = cs.derive_key()
         
-        #set up AS, pk and init data
+        #set up AS, pk and init cdata
         x = Cdata(attr=[2,5,2])
         x.set_pk(pk)
         c = pro.lab_encrypt_vector(pk, data)
@@ -144,7 +144,7 @@ class TestClient(unittest.TestCase):
         a.set_key(pk)
         a.load_data(x)
         
-        # simulate client upload data
+        # simulate client upload cdata
         a.insert_to_db(c)
         a.insert_to_db(c)
         a.insert_to_db(c)
@@ -170,7 +170,7 @@ class TestClient(unittest.TestCase):
         cs.reg_eps(1.0)
         pk, sk = cs.derive_key()
         
-        #set up AS, pk and init data
+        #set up AS, pk and init cdata
         x = Cdata(attr=[2,5,2])
         x.set_pk(pk)
         c = pro.lab_encrypt_vector(pk, data)
@@ -179,7 +179,7 @@ class TestClient(unittest.TestCase):
         a.set_key(pk)
         a.load_data(x)
         
-        # simulate client upload data
+        # simulate client upload cdata
         a.insert_to_db(c)
         a.insert_to_db(c)
 
@@ -212,7 +212,7 @@ class TestClient(unittest.TestCase):
         cs.reg_eps(1.0)
         pk, sk = cs.derive_key()
         
-        #set up AS, pk and init data
+        #set up AS, pk and init cdata
         x = Cdata(attr=attr)
         x.set_pk(pk)
         data = [1, 0, 0, 1]
@@ -222,7 +222,7 @@ class TestClient(unittest.TestCase):
         a.set_key(pk)
         a.load_data(x)
         
-        # simulate client upload data
+        # simulate client upload cdata
         data = [1, 0, 1, 0]
         c = pro.lab_encrypt_vector(pk, data)
         a.insert_to_db(c)
@@ -243,7 +243,7 @@ class TestClient(unittest.TestCase):
         a = AS()
         a.set_key(pk)
         a.load_data(c)
-        # a.load_data(c) # load_data will changed the current data to the data to load
+        # a.load_data(c) # load_data will changed the current cdata to the cdata to load
 
         encrypted_count = a.execute(test_q1, 1, 2, 2)
         # c.set_data(c.get_data()[0])

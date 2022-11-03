@@ -89,7 +89,7 @@ def cosprod(obj, attr_1, attr_2, pk):
 
 
 '''
-     Operator filter: filter the data that satisfies certain predicate
+     Operator filter: filter the cdata that satisfies certain predicate
      @param tab - input encrypted table
      @param attr - table schema
      @param attr_pred - i-th attribute
@@ -129,7 +129,7 @@ def op_filter(tab, attr, attr_pred, val_pred_1, val_pred_2, zero):
 
 
 '''
-     Operator project: project the data according to certain predicate, discard all other columns
+     Operator project: project the cdata according to certain predicate, discard all other columns
      @param tab - input encrypted table
      @param attr - table schema
      @param attr_pred - i-th attribute
@@ -302,7 +302,7 @@ class Cdata:
     '''
 
     '''
-     Operator group by: group by and count the data via given predicate
+     Operator group by: group by and count the cdata via given predicate
      @param attr_pred - i-th attribute
      Example 
            Group by query: group_by(2), SELECT COUNT(*) From Tb Group By 2nd-attribute
@@ -407,7 +407,7 @@ class AS:
 
     def execute(self, query, *args):
         if self.data == []:
-            raise ValueError('No data available.')
+            raise ValueError('No cdata available.')
 
         x = copy(self.data)
         return query(x, *args)

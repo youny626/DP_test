@@ -1,3 +1,5 @@
+import multiprocessing
+
 from crypte_src import crypte
 import unittest
 import numpy as np
@@ -5,19 +7,15 @@ import random
 import resource
 import time
 import phe.paillier as paillier
-from dataclasses import dataclass
-# import util
 import json
-# from crypte_src import provision
-# from crypte import Crypte
 import pandas as pd
 import time
-# import diffprivlib as dp
 from tqdm import tqdm
 import crypte_new.src.crypte.provision as pro
 import crypte_new.src.crypte.core as cte
 from crypte_new.src.crypte.core import Cdata
 from crypte_new.src.crypte.core import CSP, AS
+from multiprocessing import Process, Manager
 
 
 class CrypteTest:
@@ -30,13 +28,13 @@ class CrypteTest:
         self.cs.reg_eps(epsilon)
         self.pk, self.sk = self.cs.derive_key()
 
-        # set up AS, pk and init data
-        self.data = Cdata(attr=attributes)
-        self.data.set_pk(self.pk)
+        # set up AS, pk and init cdata
+        self.cdata = Cdata(attr=attributes)
+        self.cdata.set_pk(self.pk)
 
         self.a = AS()
         self.a.set_key(self.pk)
-        self.a.load_data(self.data)
+        self.a.load_data(self.cdata)
 
         # self.db = crypte.Crypte(attr=attributes)
         # self.pubkey, self.prikey = paillier.generate_paillier_keypair()
@@ -50,7 +48,19 @@ class CrypteTest:
             # print(v)
             encrypted_v = pro.lab_encrypt_vector(self.pk, v)
             # print(enc_v)
-            self.data.insert(encrypted_v)
+            self.cdata.insert(encrypted_v)
+
+    def insert_parallel(self, L: list, data):
+        # print(df)
+
+        # print(df_list)
+        for v in tqdm(data):
+            # print(v)
+            encrypted_v = pro.lab_encrypt_vector(self.pk, v)
+            # print(enc_v)
+            # self.cdata.insert(encrypted_v)
+            L.append(encrypted_v)
+
 
     def count(self, attr_num, start, end, epsilon):
 
@@ -69,33 +79,6 @@ class CrypteTest:
         print("DP counting output is", noisy_res)
 
         return noisy_res
-
-
-        # encrypted_filter = cte.filter(attr_num, start, end)
-        # # print(encrypted_filter)
-        # encrypted_count = self.db.count(encrypted_filter)
-        # # print(encrypted_count)
-        # answer = provision.lab_decrypt(self.prikey, encrypted_count)
-        # # print(answer)
-        # # true_answer = dummy.iloc[:, 2].sum()
-        # # print(true_answer)
-        # # assert answer == true_answer
-        #
-        # sensitivity = 1
-        # laplace_noise = np.random.laplace(loc=0, scale=2 * sensitivity / self.epsilon)
-        # # print(laplace_noise)
-        # encrypted_noise = provision.lab_encrypt(self.pubkey, laplace_noise)
-        # # print(encrypted_noise)
-        # encrypted_count = provision.lab_add(encrypted_count, encrypted_noise)
-        # # print(encnt)
-        #
-        # # CSP checks whether the privacy budget is exceeded
-        #
-        # result = provision.lab_decrypt(self.prikey, encrypted_count)
-        # # print(m)
-        #
-        # result = result + laplace_noise
-        # return result
 
     def group_by(self, attr_num, epsilon):
 
@@ -118,7 +101,8 @@ class CrypteTest:
 
     def serialize(self, file_name):
 
-        enc_data = self.data.get_data()
+        enc_data = self.cdata.get_data()
+        # print(enc_data)
         values = []
         labels = []
         for enc_v in enc_data:
@@ -159,26 +143,16 @@ class CrypteTest:
             lab_env = [[labs[i], enc_nums[i]] for i in range(len(labs))]
             data.append(lab_env)
 
-        # enc_nums_rec = [paillier.EncryptedNumber(pubkey, int(x[0]), int(x[1])) for x in received_dict['values']]
-        # labels = [int(x) for x in received_dict['labels']]
-
-        # rec_lab_env = [[labels[i], enc_nums_rec[i]] for i in range(len(labels))]
-
         self.pk = pubkey
         self.sk = privkey
         self.cs.pk = self.pk
         self.cs.sk = self.sk
-        self.data.set_data(data)
-        self.data.set_pk(self.pk)
-        self.a.load_data(self.data)
+        self.cdata.set_data(data)
+        self.cdata.set_pk(self.pk)
+        self.a.load_data(self.cdata)
         self.a.set_key(self.pk)
 
-
-        # self.sk = privkey
-
         return data
-        # os.system('rm sample.json')
-        # self.assertEqual(list(mvec), data)
 
 
 def encode_and_bind(original_dataframe, feature_to_encode):
@@ -199,7 +173,7 @@ if __name__ == '__main__':
     df = pd.read_csv("adult.csv")
     # df.drop(["Unnamed: 0", "state", "puma", "income", "latino", "black", "asian"], axis=1, inplace=True)
     # df.drop(["income", "pid"], axis=1, inplace=True)
-    # df = df.sample(2)
+    df = df.sample(4)
 
     # df = df[["age"]]
     # print(df.head(10))
@@ -218,29 +192,61 @@ if __name__ == '__main__':
     # df_one_hot_sum = df_one_hot.sum(axis=0).to_frame().T
     # print(df_one_hot_sum)
     print(df_one_hot.shape)
-    data = df_one_hot.values.tolist()
-    # print(data)
+    data = df_one_hot.to_numpy()
+    # print(cdata)
 
-    f = open("log.txt", "w")
+    f = open("log_parallel.txt", "w")
 
     crypte = CrypteTest(crypte_attrs, epsilon)
     start = time.time()
-    crypte.insert(data)
+    # crypte.insert(data)
+    with Manager() as manager:
+
+        L = manager.list()
+        processes = []
+        num_processes = multiprocessing.cpu_count() - 2
+
+        if num_processes > len(data):
+            num_processes = len(data)
+
+        # print(cdata)
+        split = np.array_split(data, num_processes)
+        # print(split)
+
+        for i in range(num_processes):
+            # print(split[i])
+            p = Process(target=crypte.insert_parallel, args=(L, split[i]))
+            p.start()
+            processes.append(p)
+
+        for p in processes:
+            p.join()
+
+        crypte.cdata.set_data(list(L))
+
+    # print(crypte.a.data.db)
+
     elapsed = time.time() - start
+    print(f"num_processes: {num_processes}")
+    f.write(f"num_processes: {num_processes}\n")
     print(f"time inserting vector to crypte: {elapsed} s")
     f.write(f"time inserting vector to crypte: {elapsed} s\n")
 
     start = time.time()
-    crypte.serialize("crypte_data.json")
+    crypte.serialize("crypte_data_parallel.json")
     elapsed = time.time() - start
     print(f"time to serialize: {elapsed} s")
     f.write(f"time to serialize: {elapsed} s\n")
 
-    # enc_data = crypte.deserialize("test.json")
+    f.close()
 
-    # mvec = [pro.lab_decrypt_vector(crypte.sk, v) for v in enc_data]
+
+    enc_data = crypte.deserialize("crypte_data_parallel.json")
+
+    mvec = [pro.lab_decrypt_vector(crypte.sk, v) for v in enc_data]
     # print(mvec)
-    # assert mvec == data
+    # print(data)
+    assert sorted(mvec) == sorted(data.tolist())
 
     # start = time.time()
     # res = crypte.count(attr_num=2, start=1, end=1, epsilon=0.1)

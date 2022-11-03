@@ -173,7 +173,7 @@ if __name__ == '__main__':
     df = pd.read_csv("adult.csv")
     # df.drop(["Unnamed: 0", "state", "puma", "income", "latino", "black", "asian"], axis=1, inplace=True)
     # df.drop(["income", "pid"], axis=1, inplace=True)
-    df = df.sample(4)
+    # df = df.sample(4)
 
     # df = df[["age"]]
     # print(df.head(10))
@@ -241,12 +241,12 @@ if __name__ == '__main__':
     f.close()
 
 
-    enc_data = crypte.deserialize("crypte_data_parallel.json")
+    # enc_data = crypte.deserialize("crypte_data_parallel.json")
 
-    mvec = [pro.lab_decrypt_vector(crypte.sk, v) for v in enc_data]
+    # mvec = [pro.lab_decrypt_vector(crypte.sk, v) for v in enc_data]
     # print(mvec)
     # print(data)
-    assert sorted(mvec) == sorted(data.tolist())
+    # assert sorted(mvec) == sorted(data.tolist())
 
     # start = time.time()
     # res = crypte.count(attr_num=2, start=1, end=1, epsilon=0.1)

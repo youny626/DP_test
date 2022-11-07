@@ -99,6 +99,26 @@ class CrypteTest:
 
         return noisy_res
 
+    def group_by_filter(self, group_by_attr_num, filter_attr_num, start, end, epsilon):
+
+        def test_group_by_filter(obj, group_by_attr_num, filter_attr_num, start, end):
+            encfilter = cte.filter(obj, filter_attr_num, start, end)
+            encnt = encfilter.group_by(group_by_attr_num)
+            return encnt
+
+        c = self.a.execute(test_group_by_filter, group_by_attr_num, filter_attr_num, start, end)
+        print("\n")
+        print("True group by output is", self.cs.reveal_clear_vector(c))
+        sens = 1
+        # print(self.attributes, attr_num-1)
+        # print(c)
+        c = self.a.laplace_distort_vector(sens, epsilon, self.attributes[group_by_attr_num-1], c)
+        noisy_res = self.cs.reveal_noisy_vector(c, sens, epsilon, self.attributes[group_by_attr_num-1])
+        noisy_res = [max(0, x) for x in noisy_res]
+        print("DP group by output is", noisy_res)
+
+        return noisy_res
+
     def serialize(self, file_name):
 
         enc_data = self.cdata.get_data()
@@ -185,77 +205,84 @@ if __name__ == '__main__':
         df_one_hot, num_cols = encode_and_bind(df_one_hot, feature)
         crypte_attrs.append(num_cols)
     # print(crypte_attrs)
-    # pd.options.display.max_columns = None
-    # pd.options.display.max_rows = None
+    pd.options.display.max_columns = None
+    pd.options.display.max_rows = None
     # print(df_one_hot)
     # squash to one row
     # df_one_hot_sum = df_one_hot.sum(axis=0).to_frame().T
     # print(df_one_hot_sum)
     print(df_one_hot.shape)
+    # print(df_one_hot.head(3))
     data = df_one_hot.to_numpy()
     # print(cdata)
 
-    f = open("log_parallel.txt", "w")
+    # f = open("log_parallel.txt", "w")
 
     crypte = CrypteTest(crypte_attrs, epsilon)
+    # start = time.time()
+    # # crypte.insert(data)
+    # with Manager() as manager:
+    #
+    #     L = manager.list()
+    #     processes = []
+    #     num_processes = multiprocessing.cpu_count() - 2
+    #
+    #     if num_processes > len(data):
+    #         num_processes = len(data)
+    #
+    #     # print(cdata)
+    #     split = np.array_split(data, num_processes)
+    #     # print(split)
+    #
+    #     for i in range(num_processes):
+    #         # print(split[i])
+    #         p = Process(target=crypte.insert_parallel, args=(L, split[i]))
+    #         p.start()
+    #         processes.append(p)
+    #
+    #     for p in processes:
+    #         p.join()
+    #
+    #     crypte.cdata.set_data(list(L))
+    #
+    # # print(crypte.a.data.db)
+    #
+    # elapsed = time.time() - start
+    # print(f"num_processes: {num_processes}")
+    # f.write(f"num_processes: {num_processes}\n")
+    # print(f"time inserting vector to crypte: {elapsed} s")
+    # f.write(f"time inserting vector to crypte: {elapsed} s\n")
+    #
+    # start = time.time()
+    # crypte.serialize("crypte_data_parallel.json")
+    # elapsed = time.time() - start
+    # print(f"time to serialize: {elapsed} s")
+    # f.write(f"time to serialize: {elapsed} s\n")
+    #
+    # f.close()
+
     start = time.time()
-    # crypte.insert(data)
-    with Manager() as manager:
-
-        L = manager.list()
-        processes = []
-        num_processes = multiprocessing.cpu_count() - 2
-
-        if num_processes > len(data):
-            num_processes = len(data)
-
-        # print(cdata)
-        split = np.array_split(data, num_processes)
-        # print(split)
-
-        for i in range(num_processes):
-            # print(split[i])
-            p = Process(target=crypte.insert_parallel, args=(L, split[i]))
-            p.start()
-            processes.append(p)
-
-        for p in processes:
-            p.join()
-
-        crypte.cdata.set_data(list(L))
-
-    # print(crypte.a.data.db)
-
+    enc_data = crypte.deserialize("crypte_data_parallel.json")
     elapsed = time.time() - start
-    print(f"num_processes: {num_processes}")
-    f.write(f"num_processes: {num_processes}\n")
-    print(f"time inserting vector to crypte: {elapsed} s")
-    f.write(f"time inserting vector to crypte: {elapsed} s\n")
-
-    start = time.time()
-    crypte.serialize("crypte_data_parallel.json")
-    elapsed = time.time() - start
-    print(f"time to serialize: {elapsed} s")
-    f.write(f"time to serialize: {elapsed} s\n")
-
-    f.close()
-
-
-    # enc_data = crypte.deserialize("crypte_data_parallel.json")
+    print(f"time to deserialize: {elapsed} s")
 
     # mvec = [pro.lab_decrypt_vector(crypte.sk, v) for v in enc_data]
     # print(mvec)
     # print(data)
     # assert sorted(mvec) == sorted(data.tolist())
 
-    # start = time.time()
-    # res = crypte.count(attr_num=2, start=1, end=1, epsilon=0.1)
-    # elapsed = time.time() - start
-    # print(f"query time: {elapsed} s")
-    #
-    # start = time.time()
-    # res = crypte.group_by(attr_num=3, epsilon=0.1)
-    # elapsed = time.time() - start
-    # print(f"query time: {elapsed} s")
+    start = time.time()
+    res = crypte.count(attr_num=1, start=4, end=14, epsilon=0.1)
+    elapsed = time.time() - start
+    print(f"query time: {elapsed} s")
 
-    # print(res)
+    start = time.time()
+    res = crypte.group_by(attr_num=2, epsilon=0.1)
+    elapsed = time.time() - start
+    print(f"query time: {elapsed} s")
+
+    start = time.time()
+    res = crypte.group_by_filter(group_by_attr_num=3, filter_attr_num=4, start=2, end=2, epsilon=0.1)
+    elapsed = time.time() - start
+    print(f"query time: {elapsed} s")
+

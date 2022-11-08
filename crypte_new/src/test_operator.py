@@ -30,7 +30,7 @@ class TestClient(unittest.TestCase):
             
         encfilter = cte.filter(x, 2,3,4)
         #encfilter = x.filter(2,3,4)
-        encnt = encfilter.count()
+        encnt = encfilter.count_filter()
         m = pro.lab_decrypt(prikey, encnt)
         
         g_truth = 3 * (arr0[4] + arr0[5])
@@ -50,7 +50,7 @@ class TestClient(unittest.TestCase):
         x.insert(c) 
             
         enc_project = cte.project(x,3)
-        encnt = enc_project.count()
+        encnt = enc_project.count_filter()
         m = pro.lab_decrypt(prikey, encnt)
         
         g_truth = 3*(arr0[-1] + arr0[-2])

@@ -32,9 +32,9 @@ class CrypteTest:
         self.cdata = Cdata(attr=attributes)
         self.cdata.set_pk(self.pk)
 
-        self.a = AS()
-        self.a.set_key(self.pk)
-        self.a.load_data(self.cdata)
+        self.analytics_server = AS()
+        self.analytics_server.set_key(self.pk)
+        self.analytics_server.load_data(self.cdata)
 
         # self.db = crypte.Crypte(attr=attributes)
         # self.pubkey, self.prikey = paillier.generate_paillier_keypair()
@@ -61,19 +61,19 @@ class CrypteTest:
             # self.cdata.insert(encrypted_v)
             L.append(encrypted_v)
 
+    def count_filter(self, attr_num, start, end, epsilon):
 
-    def count(self, attr_num, start, end, epsilon):
-
-        def test_count(obj, attr_pred, val_pred_1, val_pred_2):
+        def _count_filter(obj, attr_pred, val_pred_1, val_pred_2):
             encfilter = cte.filter(obj, attr_pred, val_pred_1, val_pred_2)
             encnt = encfilter.count()
             return encnt
 
-        c = self.a.execute(test_count, attr_num, start, end)
+        c = self.analytics_server.execute(_count_filter, attr_num, start, end)
         print("\n")
         print("True counting output is", self.cs.reveal_clear(c))
+
         sens = 1
-        c = self.a.laplace_distort(sens, epsilon, 1, c)
+        c = self.analytics_server.laplace_distort(sens, epsilon, 1, c)
         noisy_res = self.cs.reveal_noisy(c, sens, epsilon)
         noisy_res = max(0, noisy_res)
         print("DP counting output is", noisy_res)
@@ -82,40 +82,84 @@ class CrypteTest:
 
     def group_by(self, attr_num, epsilon):
 
-        def test_group_by(obj, attr_pred):
+        def _group_by(obj, attr_pred):
             encnt = obj.group_by(attr_pred)
             return encnt
 
-        c = self.a.execute(test_group_by, attr_num)
+        db_copy = self.cdata.get_data().copy()
+        attr_copy = self.cdata.get_attr().copy()
+
+        c = self.analytics_server.execute(_group_by, attr_num)
         print("\n")
         print("True group by output is", self.cs.reveal_clear_vector(c))
         sens = 1
         # print(self.attributes, attr_num-1)
         # print(c)
-        c = self.a.laplace_distort_vector(sens, epsilon, self.attributes[attr_num-1], c)
+        c = self.analytics_server.laplace_distort_vector(sens, epsilon, self.attributes[attr_num - 1], c)
         noisy_res = self.cs.reveal_noisy_vector(c, sens, epsilon, self.attributes[attr_num-1])
         noisy_res = [max(0, x) for x in noisy_res]
         print("DP group by output is", noisy_res)
 
+        self.cdata.set_data(db_copy)
+        self.cdata.set_attr(attr_copy)
+
         return noisy_res
 
-    def group_by_filter(self, group_by_attr_num, filter_attr_num, start, end, epsilon):
+    def cross_product_filter(self, attr1, attr2, start, end, epsilon):
+
+        def _cross_product(obj, attr_1, attr_2, pk):
+            cross_product = cte.cosprod(obj, attr_1, attr_2, pk)
+            return cross_product
+
+        def _count_filter(obj, attr_pred, val_pred_1, val_pred_2):
+            encfilter = cte.filter(obj, attr_pred, val_pred_1, val_pred_2)
+            encnt = encfilter.count()
+            return encnt
+
+        cross_product = self.analytics_server.execute(_cross_product, attr1, attr2, self.pk)
+
+        # need to re-encrypt the cross product
+        cross_product.set_data(self.cs.re_encrypt_mult(cross_product.get_data()))
+
+        a = AS()
+        a.set_key(self.pk)
+        a.load_data(cross_product)  # load_data will change the current cdata to the cdata to load
+
+        encrypted_count = a.execute(_count_filter, 1, start, end)
+        print("True counting output is", self.cs.reveal_clear(encrypted_count))
+
+        sens = 1
+        noisy_res = a.laplace_distort(sens, epsilon, 1, encrypted_count)
+        print("DP counting output is", self.cs.reveal_noisy(noisy_res, sens, epsilon))
+
+    def _group_by_filter(self, group_by_attr_num, filter_attr_num, start, end, epsilon):
+        # FIXME: does not work
+
+        db_copy = self.cdata.get_data().copy()
+        attr_copy = self.cdata.get_attr().copy()
 
         def test_group_by_filter(obj, group_by_attr_num, filter_attr_num, start, end):
             encfilter = cte.filter(obj, filter_attr_num, start, end)
+            # print(encfilter.get_attr())
+            # print(self.cs.reveal_clear_vector(encfilter.get_data()[0]))
+            # print(self.cs.reveal_clear_vector(encfilter.get_data()[1]))
+            # print(self.cs.reveal_clear_vector(encfilter.get_data()[2]))
             encnt = encfilter.group_by(group_by_attr_num)
             return encnt
 
-        c = self.a.execute(test_group_by_filter, group_by_attr_num, filter_attr_num, start, end)
+        c = self.analytics_server.execute(test_group_by_filter, group_by_attr_num, filter_attr_num, start, end)
         print("\n")
         print("True group by output is", self.cs.reveal_clear_vector(c))
         sens = 1
         # print(self.attributes, attr_num-1)
         # print(c)
-        c = self.a.laplace_distort_vector(sens, epsilon, self.attributes[group_by_attr_num-1], c)
+        c = self.analytics_server.laplace_distort_vector(sens, epsilon, self.attributes[group_by_attr_num - 1], c)
         noisy_res = self.cs.reveal_noisy_vector(c, sens, epsilon, self.attributes[group_by_attr_num-1])
         noisy_res = [max(0, x) for x in noisy_res]
         print("DP group by output is", noisy_res)
+
+        self.cdata.set_data(db_copy)
+        self.cdata.set_attr(attr_copy)
 
         return noisy_res
 
@@ -169,8 +213,8 @@ class CrypteTest:
         self.cs.sk = self.sk
         self.cdata.set_data(data)
         self.cdata.set_pk(self.pk)
-        self.a.load_data(self.cdata)
-        self.a.set_key(self.pk)
+        self.analytics_server.load_data(self.cdata)
+        self.analytics_server.set_key(self.pk)
 
         return data
 
@@ -193,7 +237,7 @@ if __name__ == '__main__':
     df = pd.read_csv("adult.csv")
     # df.drop(["Unnamed: 0", "state", "puma", "income", "latino", "black", "asian"], axis=1, inplace=True)
     # df.drop(["income", "pid"], axis=1, inplace=True)
-    # df = df.sample(4)
+    # df = df.sample(3)
 
     # df = df[["age"]]
     # print(df.head(10))
@@ -212,15 +256,18 @@ if __name__ == '__main__':
     # df_one_hot_sum = df_one_hot.sum(axis=0).to_frame().T
     # print(df_one_hot_sum)
     print(df_one_hot.shape)
-    # print(df_one_hot.head(3))
-    data = df_one_hot.to_numpy()
+    # print(df_one_hot.columns)
+
+    # exit()
+    # print(df_one_hot)
+    data = df_one_hot.to_numpy(dtype=int).tolist()
     # print(cdata)
 
     # f = open("log_parallel.txt", "w")
 
     crypte = CrypteTest(crypte_attrs, epsilon)
     # start = time.time()
-    # # crypte.insert(data)
+    # crypte.insert(data)
     # with Manager() as manager:
     #
     #     L = manager.list()
@@ -245,7 +292,7 @@ if __name__ == '__main__':
     #
     #     crypte.cdata.set_data(list(L))
     #
-    # # print(crypte.a.data.db)
+    # # print(crypte.analytics_server.data.db)
     #
     # elapsed = time.time() - start
     # print(f"num_processes: {num_processes}")
@@ -271,18 +318,34 @@ if __name__ == '__main__':
     # print(data)
     # assert sorted(mvec) == sorted(data.tolist())
 
+    # print(crypte.analytics_server.data.get_attr())
+
     start = time.time()
-    res = crypte.count(attr_num=1, start=4, end=14, epsilon=0.1)
+    res = crypte.count_filter(attr_num=1, start=4, end=14, epsilon=0.1)
     elapsed = time.time() - start
-    print(f"query time: {elapsed} s")
+    print(f"query1 time: {elapsed} s")
+
+    # print(crypte.analytics_server.data.get_attr())
 
     start = time.time()
     res = crypte.group_by(attr_num=2, epsilon=0.1)
     elapsed = time.time() - start
-    print(f"query time: {elapsed} s")
+    print(f"query2 time: {elapsed} s")
 
     start = time.time()
-    res = crypte.group_by_filter(group_by_attr_num=3, filter_attr_num=4, start=2, end=2, epsilon=0.1)
+    res = crypte.cross_product_filter(attr1=3, attr2=4, start=2, end=2, epsilon=0.1)
     elapsed = time.time() - start
-    print(f"query time: {elapsed} s")
+    print(f"query3 time: {elapsed} s")
+
+    start = time.time()
+    res = crypte.cross_product_filter(attr1=1, attr2=4, start=77, end=87, epsilon=0.1)
+    elapsed = time.time() - start
+    print(f"query4 time: {elapsed} s")
+
+    # print(crypte.analytics_server.data.get_attr())
+
+    # start = time.time()
+    # res = crypte.group_by_filter(group_by_attr_num=3, filter_attr_num=4, start=1, end=1, epsilon=0.1)
+    # elapsed = time.time() - start
+    # print(f"query time: {elapsed} s")
 

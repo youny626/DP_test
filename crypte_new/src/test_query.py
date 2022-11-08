@@ -57,7 +57,7 @@ class TestClient(unittest.TestCase):
         
         
         c = a.execute(test_q1, 2, 3, 4)
-        #c = a.laplace_distort(20, 0.5, 1, c)
+        #c = analytics_server.laplace_distort(20, 0.5, 1, c)
         self.assertEqual(55, cs.reveal_clear(c))
         
         
@@ -203,7 +203,7 @@ class TestClient(unittest.TestCase):
         y = [0, 1]
         print(np.cross(x, y))
         
-    ''' Test of multi-dimentional filter query'''
+    ''' Test of multi-dimensional filter query'''
     def test_cosprod_filter(self):
         attr = [2, 2]
         
@@ -226,7 +226,9 @@ class TestClient(unittest.TestCase):
         data = [1, 0, 1, 0]
         c = pro.lab_encrypt_vector(pk, data)
         a.insert_to_db(c)
-        # a.insert_to_db(c)
+        # analytics_server.insert_to_db(c)
+        print(x.get_data())
+        print(len(x.get_data()), len(x.get_data()[0]), len(x.get_data()[0][0]))
             
         c = a.execute(test_q2, 1, 2, pk)
         # g_truth = [1, ]
@@ -239,18 +241,21 @@ class TestClient(unittest.TestCase):
         # attr1 = 2, attr2 = 1
         # so the index (1-based) to filter for the cross product is 2
         print(c.get_attr())
+        print(c.get_data())
+        c.set_data(cs.re_encrypt_mult(c.get_data()))
+        print(len(c.get_data()), len(c.get_data()[0]), len(c.get_data()[0][0]))
+
 
         a = AS()
         a.set_key(pk)
-        a.load_data(c)
-        # a.load_data(c) # load_data will changed the current cdata to the cdata to load
+        a.load_data(c) # load_data will change the current cdata to the cdata to load
 
-        encrypted_count = a.execute(test_q1, 1, 2, 2)
+        encrypted_count = a.execute(test_q1, 1, 1, 2)
         # c.set_data(c.get_data()[0])
         # encfilter = cte.filter(c, 1, 2, 2)
         # encrypted_count = encfilter.count()
         print(encrypted_count)
-        print("True counting output is", cs.reveal_clear_vector(encrypted_count))
+        print("True counting output is", cs.reveal_clear(encrypted_count))
 
 
         sens = 1

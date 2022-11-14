@@ -140,7 +140,7 @@ if __name__ == '__main__':
         shuffler_time += (time.time() - start)
 
         start = time.time()
-        crypte_res[i] = crypte.count(attr_num=1, start=1, end=crypte_attrs[0])
+        crypte_res[i] = crypte.count_filter(attr_num=1, start=1, end=crypte_attrs[0])
         crypte_time += (time.time() - start)
 
         # print("CDP: ", CDP.count(df["age"], epsilon))
@@ -167,7 +167,7 @@ if __name__ == '__main__':
     shuffler_res, shuffler_time = np.zeros(num_iters), 0
     crypte_res, crypte_time = np.zeros(num_iters), 0
 
-    print("\nrange(over a single attribute): COUNT(20 <= age <= 30)")
+    print("\nrange(over analytics_server single attribute): COUNT(20 <= age <= 30)")
     answer = len(df["age"][df["age"].between(20, 30)])
     print("original: ", answer)
     true_answer = np.full(num_iters, answer)
@@ -196,7 +196,7 @@ if __name__ == '__main__':
         col_list = df_one_hot_sum.columns.tolist()
         start_pos = col_list.index("age_20") + 1
         end_pos = col_list.index("age_30") + 1
-        crypte_res[i] = crypte.count(attr_num=1, start=start_pos, end=end_pos)
+        crypte_res[i] = crypte.count_filter(attr_num=1, start=start_pos, end=end_pos)
         crypte_time += (time.time() - start)
 
         # print("CDP: ", CDP.count(df["age"][df["age"].between(20, 30)], epsilon))
@@ -252,7 +252,7 @@ if __name__ == '__main__':
         col_list = df_one_hot_sum.columns.tolist()
         start_pos = col_list.index("age_50") + 1
         end_pos = col_list.index("age_50") + 1
-        crypte_res[i] = crypte.count(attr_num=1, start=start_pos, end=end_pos)
+        crypte_res[i] = crypte.count_filter(attr_num=1, start=start_pos, end=end_pos)
         crypte_time += (time.time() - start)
 
         # print("CDP: ", CDP.count(df["age"][df["age"].between(20, 30)], epsilon))

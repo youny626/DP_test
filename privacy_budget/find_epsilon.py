@@ -1,4 +1,5 @@
 import itertools
+import math
 import random
 import re
 
@@ -16,6 +17,7 @@ from snsql.sql.reader.base import SortKey
 from snsql._ast.ast import Top
 from sqlalchemy import create_engine
 from pandas.io.sql import to_sql, read_sql
+import matplotlib.pyplot as plt
 
 
 def get_metadata(df: pd.DataFrame, name: str):
@@ -114,22 +116,24 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
         query_string = re.sub(f" FROM {table_name}.{table_name}", f" FROM {table_name}", query_string,
                        flags=re.IGNORECASE)
 
-        pos = query_string.rfind(" WHERE ")  # last pos of WHERE
-        if pos == -1:
-            # query_string = f"{query_string} WHERE {row_num_col} != {row_num_to_exclude}"
-            pos2 = query_string.rfind(f" FROM {table_name}")
-            pos2 += len(f" FROM {table_name}")
-            query_string = query_string[:pos2] + f" WHERE {row_num_col} != {row_num_to_exclude} " + query_string[pos2:]
-        else:
-            # print(pos)
-            pos += len(" WHERE ")
-            # print(query_string[:pos])
-            query_string = query_string[:pos] + f"{row_num_col} != {row_num_to_exclude} AND " + query_string[pos:]
+        if row_num_to_exclude != -1:
+            pos = query_string.rfind(" WHERE ")  # last pos of WHERE
+            if pos == -1:
+                # query_string = f"{query_string} WHERE {row_num_col} != {row_num_to_exclude}"
+                pos2 = query_string.rfind(f" FROM {table_name}")
+                pos2 += len(f" FROM {table_name}")
+                query_string = query_string[:pos2] + f" WHERE {row_num_col} != {row_num_to_exclude} " + query_string[pos2:]
+            else:
+                # print(pos)
+                pos += len(" WHERE ")
+                # print(query_string[:pos])
+                query_string = query_string[:pos] + f"{row_num_col} != {row_num_to_exclude} AND " + query_string[pos:]
 
         # print(query_string)
         q_result = read_sql(sql=query_string, con=sqlite_connection)
         # print(q_result)
         exact_aggregates = [tuple([col for col in q_result.columns])] + [val[1:] for val in q_result.itertuples()]
+        # print(exact_aggregates)
 
     _accuracy = None
     if accuracy:
@@ -142,7 +146,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
     # tell which are counts, in column order
     is_count = [s.expression.is_count for s in syms]
 
-    # get a list of mechanisms in column order
+    # get analytics_server list of mechanisms in column order
     mechs = private_reader._get_mechanisms(subquery)
     check_sens = [m for m in mechs if m]
     if any([m.sensitivity is np.inf for m in check_sens]):
@@ -163,7 +167,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
         ]
 
     if hasattr(exact_aggregates, "rdd"):
-        # it's a dataframe
+        # it's analytics_server dataframe
         out = exact_aggregates.rdd.map(randomize_row_values)
     elif hasattr(exact_aggregates, "map"):
         # it's an RDD
@@ -175,22 +179,33 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
     else:
         raise ValueError("Unexpected type for exact_aggregates")
 
+    # print(list(out))
+
     # censor infrequent dimensions
-    if private_reader._options.censor_dims:
-        if kc_pos is None:
-            raise ValueError("Query needs a key count column to censor dimensions")
-        else:
-            thresh_mech = mechs[kc_pos]
-            private_reader.tau = thresh_mech.threshold
-        if hasattr(out, "filter"):
-            # it's an RDD
-            tau = private_reader.tau
-            out = out.filter(lambda row: row[kc_pos] > tau)
-        else:
-            out = filter(lambda row: row[kc_pos] > private_reader.tau, out)
+    # if private_reader._options.censor_dims:
+    #     if kc_pos is None:
+    #         raise ValueError("Query needs analytics_server key count column to censor dimensions")
+    #     else:
+    #         thresh_mech = mechs[kc_pos]
+    #         private_reader.tau = thresh_mech.threshold
+    #         # print("xxx")
+    #     if hasattr(out, "filter"):
+    #         # it's an RDD
+    #         tau = private_reader.tau
+    #         out = out.filter(lambda row: row[kc_pos] > tau)
+    #         # print("yyy")
+    #     else:
+    #         # print(kc_pos)
+    #         # print(private_reader.tau)
+    #         out = filter(lambda row: row[kc_pos] > private_reader.tau, out)
+    #         # print("zzz")
+
+    # print(list(out))
 
     if not postprocess:
         return out
+
+    # print(list(out))
 
     def process_clamp_counts(row_in):
         # clamp counts to be non-negative
@@ -203,7 +218,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
     clamp_counts = private_reader._options.clamp_counts
     if clamp_counts:
         if hasattr(out, "rdd"):
-            # it's a dataframe
+            # it's analytics_server dataframe
             out = out.rdd.map(process_clamp_counts)
         elif hasattr(out, "map"):
             # it's an RDD
@@ -318,7 +333,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
         limit_rows = query.select.quantifier.n
     if limit_rows is not None:
         if hasattr(out, "rdd"):
-            # it's a dataframe
+            # it's analytics_server dataframe
             out = out.limit(limit_rows)
         elif hasattr(out, "map"):
             # it's an RDD
@@ -332,13 +347,15 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
 
     if accuracy == False:
         if hasattr(out, "rdd"):
-            # it's a dataframe
+            # it's analytics_server dataframe
             out = out.rdd.map(drop_accuracy)
         elif hasattr(out, "map"):
             # it's an RDD
             out = out.map(drop_accuracy)
         else:
             out = map(drop_accuracy, out)
+
+    # print(list(out))
 
     # increment odometer
     for mech in mechs:
@@ -441,7 +458,7 @@ def compute_original_risks(df: pd.DataFrame, query_string: str, metadata: dict, 
 
 def extract_table_names(query):
     """ Extract table names from an SQL query. """
-    # a good old fashioned regex. turns out this worked better than actually parsing the code
+    # analytics_server good old fashioned regex. turns out this worked better than actually parsing the code
     tables_blocks = re.findall(r'(?:FROM|JOIN)\s+(\w+(?:\s*,\s*\w+)*)', query, re.IGNORECASE)
     tables = [tbl
               for block in tables_blocks
@@ -461,6 +478,10 @@ def find_epsilon(df: pd.DataFrame,
         table_names = extract_table_names(query_string)
         if len(table_names) != 1:
             print("error: can only query on one table")
+            return None
+        if query_string.count("SELECT ") > 1:
+            # there's subquery
+            print("error: can't have subquery")
             return None
         table_name = table_names.pop()
         # print(table_name)
@@ -483,7 +504,7 @@ def find_epsilon(df: pd.DataFrame,
 
         df_copy = df.copy()
 
-        # just needed to create a row_num col that doesn't already exist
+        # just needed to create analytics_server row_num col that doesn't already exist
         row_num_col = f"row_num_{random.randint(0, 10000)}"
         while row_num_col in df_copy.columns:
             row_num_col = f"row_num_{random.randint(0, 10000)}"
@@ -573,8 +594,8 @@ def find_epsilon(df: pd.DataFrame,
         #     idx1, idx2 = idx2, idx1
         print(idx1, idx2)
 
-        sample1 = sorted_original_risks[:idx1 + 1]
-        sample2 = sorted_original_risks[idx2:]
+        # sample1 = sorted_original_risks[:idx1 + 1]
+        # sample2 = sorted_original_risks[idx2:]
         # print(sample1)
         # print(sample2)
         sample_idx1 = sorted_original_risks_idx[:idx1 + 1]
@@ -608,6 +629,8 @@ def find_epsilon(df: pd.DataFrame,
 
         for eps in tqdm.tqdm(sorted_eps_to_test):
 
+            print(f"epsilon = {eps}")
+
             # reject_null = False
             p_values = []
 
@@ -632,7 +655,7 @@ def find_epsilon(df: pd.DataFrame,
 
                 start_time = time.time()
 
-                # better to compute a new DP result each run
+                # better to compute analytics_server new DP result each run
                 # dp_result = private_reader.execute_df(query)
                 # query_ast = private_reader.parse_query_string(query_string)
                 # subquery, query = private_reader._rewrite_ast(query_ast)
@@ -655,7 +678,9 @@ def find_epsilon(df: pd.DataFrame,
                     cur_result = private_reader._to_df(cur_result)
 
                     # change = abs(cur_result - dp_result).to_numpy().sum()
-                    change = abs(cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
+                    change = 0
+                    if len(cur_result) > 0 and len(dp_result) > 0:
+                        change = abs(cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
 
                     new_risks1.append(change)
 
@@ -667,7 +692,9 @@ def find_epsilon(df: pd.DataFrame,
                     cur_result = private_reader._to_df(cur_result)
 
                     # change = abs(cur_result - dp_result).to_numpy().sum()
-                    change = abs(cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
+                    change = 0
+                    if len(cur_result) > 0 and len(dp_result) > 0:
+                        change = abs(cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
 
                     new_risks2.append(change)
 
@@ -684,8 +711,8 @@ def find_epsilon(df: pd.DataFrame,
                 #     reject_null = True # early stopping
                 p_values.append(p_value)
 
-                # print(new_risks1)
-                # print(new_risks2)
+                # print(pd.DataFrame(new_risks1).describe())
+                # print(pd.DataFrame(new_risks2).describe())
                 # print(f"p_value: {p_value}")
 
                 elapsed = time.time() - start_time
@@ -694,7 +721,7 @@ def find_epsilon(df: pd.DataFrame,
             # Now we have n p-values for the current epsilon, we use multiple comparisons' technique
             # to determine if this epsilon is good enough
             # For now we use false discovery rate
-            print(p_values)
+            # print(p_values)
             if not fdr(p_values, q):  # q = proportion of false positives we will accept
                 # We want no discovery (fail to reject null) for all n runs
                 # If we fail to reject the null, then we break the loop.
@@ -702,15 +729,415 @@ def find_epsilon(df: pd.DataFrame,
                 best_eps = eps
                 break
 
-            # TODO: if we find a lot of discoveries (a lot of small p-values),
+            # TODO: if we find analytics_server lot of discoveries (analytics_server lot of small p-values),
             #  we can skip epsilons that are close to the current eps (ex. 10 to 9).
-            #  If there's only a few discoveries,
+            #  If there's only analytics_server few discoveries,
             #  we should probe epsilons that are close (10 to 9.9)
 
         print(f"total time to compute new risk: {compute_risk_time} s")
         print(f"total time to test equal distribution: {test_equal_distrbution_time} s")
 
         sqlite_connection.close()
+
+        return best_eps
+
+
+def find_epsilon_us(df: pd.DataFrame,
+                 query_string: str,
+                 risk_group_percentile: int,
+                 eps_to_test: list,
+                 num_runs: int,
+                 q: float):
+    with warnings.catch_warnings():
+        warnings.simplefilter(action="ignore")
+
+        table_names = extract_table_names(query_string)
+        if len(table_names) != 1:
+            print("error: can only query on one table")
+            return None
+        if query_string.count("SELECT ") > 1:
+            # there's subquery
+            print("error: can't have subquery")
+            return None
+        table_name = table_names.pop()
+        # print(table_name)
+
+        start_time = time.time()
+
+        # dfs_one_off = []  # cache
+        # for i in range(len(df)):
+        #     cur_df = df.copy()
+        #     cur_df = cur_df.drop([i])
+        #     dfs_one_off.append(cur_df)
+
+        metadata = get_metadata(df, table_name)
+        # print(metadata)
+
+        # original_risks, original_result = compute_original_risks(df, query_string, metadata, dfs_one_off)
+
+        engine = create_engine("sqlite:///:memory:")
+
+        sqlite_connection = engine.connect()
+
+        df_copy = df.copy()
+
+        # just needed to create analytics_server row_num col that doesn't already exist
+        row_num_col = f"row_num_{random.randint(0, 10000)}"
+        while row_num_col in df_copy.columns:
+            row_num_col = f"row_num_{random.randint(0, 10000)}"
+        df_copy[row_num_col] = df_copy.reset_index().index
+
+        num_rows = to_sql(df_copy, name=table_name, con=sqlite_connection,
+                             index=not any(name is None for name in df_copy.index.names),
+                             if_exists="replace")  # load index into db if all levels are named
+        if num_rows != len(df_copy):
+            print("error when loading to sqlite")
+            return None
+
+        # table_names = engine.table_names(connection=sqlite_connection)
+        # print(table_names)
+
+        original_result = read_sql(sql=query_string, con=sqlite_connection)
+        # res = [tuple([col for col in q_result.columns])] + [val[1:] for val in q_result.itertuples()]
+        print("original_result")
+        print(original_result)
+        # print(res)
+
+        if len(original_result.select_dtypes(include=np.number).columns) > 1:
+            print("error: can only have one numerical column in the query result")
+            return None
+
+        # print(read_sql(sql=f"SELECT * FROM {table_name}", con=sqlite_connection))
+
+        original_risks = []
+
+        query_string = re.sub(f" WHERE ", f" WHERE ", query_string, flags=re.IGNORECASE)
+        query_string = re.sub(f" FROM ", f" FROM ", query_string, flags=re.IGNORECASE)
+
+        pos = query_string.rfind(" WHERE ")  # last pos of WHERE
+        no_where_clause = False
+        if pos == -1:
+            no_where_clause = True
+            pos2 = query_string.rfind(f" FROM {table_name}") + len(f" FROM {table_name}")
+            # print(query_string)
+            # print(pos2)
+        else:
+            pos += len(" WHERE ")
+
+        for i in range(len(df_copy)):
+
+            if no_where_clause:
+                cur_query = query_string[:pos2] + f" WHERE {row_num_col} != {i} " + query_string[pos2:]
+            else:
+                cur_query = query_string[:pos] + f"{row_num_col} != {i} AND " + query_string[pos:]
+
+            # if cur_query.count("SELECT ") > 1:
+            #     # there's subquery
+            #     for m in re.finditer("SELECT ", cur_query):
+            #         pos = m.end()
+            #         cur_query = query_string[:pos] + f"{row_num_col}, " + query_string[pos:]
+
+            # print(cur_query)
+            cur_result = read_sql(sql=cur_query, con=sqlite_connection)
+            # print(cur_result)
+
+            change = abs(cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
+            original_risks.append(change)
+
+        # print(original_risks)
+        elapsed = time.time() - start_time
+        print(f"time to compute original risk: {elapsed} s")
+
+        # return None
+
+        # Select groups we want to equalize risks
+        # for now use the default strategy - high risk (upper x% quantile) and low risk (lower x% quantile) group
+        sorted_original_risks = list(np.sort(original_risks))
+        # print(sorted_original_risks)
+        sorted_original_risks_idx = np.argsort(original_risks)
+        # idx1 = sorted_original_risks.index(
+        #     np.percentile(sorted_original_risks, risk_group_percentile, interpolation='nearest'))
+
+        if risk_group_percentile > 50:
+            risk_group_percentile = 100 - risk_group_percentile
+
+        val1 = np.percentile(sorted_original_risks, risk_group_percentile, interpolation='nearest')
+        # last index of val1
+        idx1 = max(loc for loc, val in enumerate(sorted_original_risks) if abs(val - val1) <= 10e-8)
+
+        # idx2 = sorted_original_risks.index(
+        #     np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest'))
+        val2 = np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest')
+        # first index of val2
+        idx2 = sorted_original_risks.index(val2)
+
+        # print(sorted_original_risks)
+        # print(val1, val2)
+        # if idx1 > idx2:
+        #     idx1, idx2 = idx2, idx1
+        # idx1 = 2
+        # idx2 = 97
+        # print(idx1, idx2)
+
+        # sample1 = sorted_original_risks[:idx1 + 1]
+        # sample2 = sorted_original_risks[idx2:]
+        # print(sample1)
+        # print(sample2)
+        sample_idx1 = sorted_original_risks_idx[:idx1 + 1]
+        sample_idx2 = sorted_original_risks_idx[idx2:]
+        # print(sample_idx1, sample_idx2)
+        # top_3_sample_idx1 = sorted_original_risks_idx[:3]
+        # bottom_3_sample_idx2 = sorted_original_risks_idx[len(df)-3:]
+
+
+        # Check whether the samples come from the same distribution (null hypothesis)
+        # Reject the null if p-value is less than some threshold
+        # for now we don't care even if the samples already come from the same distribution
+        # res = stats.ks_2samp(sample1, sample2)
+        # p_value = res[1]
+        # print(f"p_value: {p_value}")
+
+        # Now we test different epsilons
+        # For each epsilon, we run n times, with the goal of finding the largest epsilon
+        # that can constantly stay in null for all n runs
+
+        best_eps = None
+
+        # We start from the largest epsilon to the smallest
+        sorted_eps_to_test = np.sort(eps_to_test)[::-1]
+        # print("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
+        # print(sorted_eps_to_test)
+        # return None
+
+        compute_risk_time = 0.0
+        test_equal_distrbution_time = 0.0
+
+        # query_string = query_string.replace(f" {table_name} ", f" {table_name}.{table_name} ")
+        query_string = re.sub(f" FROM {table_name}", f" FROM {table_name}.{table_name}", query_string, flags=re.IGNORECASE)
+
+        risks = []
+        max_risk = 0
+
+        for eps in tqdm.tqdm(sorted_eps_to_test):
+
+            print(f"epsilon = {eps}")
+
+            # reject_null = False
+            p_values = []
+
+            # For each run, we compute the risks again
+            # New risk = DP result - DP result when removing one record
+
+            privacy = Privacy(epsilon=eps)
+            private_reader = snsql.from_df(df_copy, metadata=metadata, privacy=privacy)
+            # private_reader._options.censor_dims = False
+            # private_reader.rewriter.options.censor_dims = False
+            # dp_result = private_reader.execute_df(query)
+            # rewrite the query ast once for every epsilon
+            # TODO: might be able to do it once if epsilon is not involved in rewriting
+            query_ast = private_reader.parse_query_string(query_string)
+            # print(query_ast)
+            subquery, query = private_reader._rewrite_ast(query_ast)
+            # print(subquery)
+            # print(query)
+
+            from collections import defaultdict
+            # top_3_risk = defaultdict(list)
+            # bottom_3_risk = defaultdict(list)
+            new_risks = defaultdict(list)
+
+            for j in tqdm.tqdm(range(num_runs)):
+
+                # if reject_null:
+                #     continue # this eps does not equalize risks, skip
+
+                start_time = time.time()
+
+                # better to compute analytics_server new DP result each run
+                # dp_result = private_reader.execute_df(query)
+                # query_ast = private_reader.parse_query_string(query_string)
+                # subquery, query = private_reader._rewrite_ast(query_ast)
+                dp_result = execute_rewritten_ast(sqlite_connection, table_name, row_num_col, -1, private_reader, subquery, query)
+                # print(dp_result)
+                dp_result = private_reader._to_df(dp_result)
+                # print("dp_result", dp_result)
+
+                for i in sorted_original_risks_idx:
+                    # cur_df = dfs_one_off[i]
+
+                    # private_reader = snsql.from_df(df_copy, metadata=metadata, privacy=privacy)
+                    # cur_result = private_reader.execute_df(query)
+
+                    cur_result = execute_rewritten_ast(sqlite_connection, table_name, row_num_col, i, private_reader,
+                                                       subquery, query)
+                    cur_result = private_reader._to_df(cur_result)
+                    # print("cur_result", cur_result)
+
+                    # change = abs(cur_result - dp_result).to_numpy().sum()
+                    change = 0
+                    if len(cur_result) > 0 and len(dp_result) > 0:
+                        change = abs(cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
+                    # print(change)
+                    new_risks[i].append(change)
+
+                '''
+                # We get the same samples based on individuals who are present in the original chosen samples
+                # we only need to compute risks for those samples
+                new_risks1 = []
+                new_risks2 = []
+
+                for i in sample_idx1:
+                    # cur_df = dfs_one_off[i]
+
+                    # private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
+                    # cur_result = private_reader.execute_df(query)
+
+                    cur_result = execute_rewritten_ast(sqlite_connection, table_name, row_num_col, i, private_reader, subquery, query)
+                    cur_result = private_reader._to_df(cur_result)
+
+                    # change = abs(cur_result - dp_result).to_numpy().sum()
+                    change = 0
+                    if len(cur_result) > 0 and len(dp_result) > 0:
+                        change = abs(cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
+
+                    new_risks1.append(change)
+
+                    # if i in top_3_sample_idx1:
+                    #     top_3_risk[i].append(change)
+
+                for i in sample_idx2:
+                    # cur_df = dfs_one_off[i]
+
+                    # private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
+                    cur_result = execute_rewritten_ast(sqlite_connection, table_name, row_num_col, i, private_reader, subquery, query)
+                    cur_result = private_reader._to_df(cur_result)
+
+                    # change = abs(cur_result - dp_result).to_numpy().sum()
+                    change = 0
+                    if len(cur_result) > 0 and len(dp_result) > 0:
+                        change = abs(cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
+
+                    new_risks2.append(change)
+
+                    # if i in bottom_3_sample_idx2:
+                    #     bottom_3_risk[i].append(change)
+
+                # normalize
+                # sum1 = sum(new_risks1)
+                # if sum1 != 0:
+                #     new_risks1 = [float(x) / sum1 for x in new_risks1]
+                #     for k, lst in top_3_risk.items():
+                #         top_3_risk[k][-1] = top_3_risk[k][-1] / sum1
+                # sum2 = sum(new_risks2)
+                # if sum2 != 0:
+                #     new_risks2 = [float(x) / sum2 for x in new_risks2]
+                #     for k, lst in bottom_3_risk.items():
+                #         bottom_3_risk[k][-1] = bottom_3_risk[k][-1] / sum2
+
+                elapsed = time.time() - start_time
+                # print(f"{j}th compute risk time: {elapsed} s")
+                compute_risk_time += elapsed
+
+                # We perform the test and record the p-value for each run
+                start_time = time.time()
+
+                cur_res = stats.ks_2samp(new_risks1, new_risks2)  # , method="exact")
+                p_value = cur_res[1]
+                # if p_value < 0.01:
+                #     reject_null = True # early stopping
+                p_values.append(p_value)
+
+                # print(pd.DataFrame(new_risks1).describe())
+                # print(pd.DataFrame(new_risks2).describe())
+                # print(f"p_value: {p_value}")
+
+                elapsed = time.time() - start_time
+                test_equal_distrbution_time += elapsed
+
+            # Now we have n p-values for the current epsilon, we use multiple comparisons' technique
+            # to determine if this epsilon is good enough
+            # For now we use false discovery rate
+            # print(p_values)
+            if not fdr(p_values, q):  # q = proportion of false positives we will accept
+                # We want no discovery (fail to reject null) for all n runs
+                # If we fail to reject the null, then we break the loop.
+                # The current epsilon is the one we choose
+                best_eps = eps
+                print(f"best eps = {eps}")
+                # break
+
+            # break
+            '''
+
+            # avg_risks = [np.average(lst) for lst in new_risks.values()]
+            med_risks = [np.median(lst) for lst in new_risks.values()]
+            # normalize
+            s = sum(med_risks)
+            if s != 0:
+                med_risks = [float(x) / s * 100 for x in med_risks]
+            print(pd.DataFrame(med_risks).describe())
+            risks.append(med_risks)
+
+            if max_risk < max(med_risks):
+                max_risk = max(med_risks)
+
+            # plt.rcParams['figure.figsize'] = [3, 2]
+            # # plt.rcParams['figure.dpi'] = 100
+            # plt.hist(med_risks)
+            # # plt.xlim(xmin=0)
+            # # plt.xlabel("risk score")
+            # # plt.ylabel("count")
+            # plt.tight_layout()
+            # plt.savefig(f"figures/q1_eps_{eps}.jpg")
+            # plt.close()
+
+            # if eps == 1:
+            #     break
+
+            # TODO: if we find analytics_server lot of discoveries (analytics_server lot of small p-values),
+            #  we can skip epsilons that are close to the current eps (ex. 10 to 9).
+            #  If there's only analytics_server few discoveries,
+            #  we should probe epsilons that are close (10 to 9.9)
+
+            # print("top 3", [np.average(lst) for lst in top_3_risk.values()])
+            # print("bottom 3", [np.average(lst) for lst in bottom_3_risk.values()])
+
+        print(f"total time to compute new risk: {compute_risk_time} s")
+        print(f"total time to test equal distribution: {test_equal_distrbution_time} s")
+
+        sqlite_connection.close()
+
+        # return
+
+        s = sum(original_risks)
+        if s != 0:
+            original_risks = [float(x) / s * 100 for x in original_risks]
+        print(pd.DataFrame(original_risks).describe())
+
+        plt.rcParams['figure.figsize'] = [3, 2]
+
+
+        for i, med_risks in enumerate(risks):
+
+            # plt.rcParams['figure.dpi'] = 100
+            plt.hist(med_risks)
+            plt.xlim(xmin=-1, xmax=math.ceil(max_risk)) #math.ceil(max_risk)
+            plt.ylim(ymin=0, ymax=len(df))
+            # plt.xlim(xmin=0)
+            # plt.xlabel("risk score")
+            # plt.ylabel("count")
+            plt.tight_layout()
+            plt.savefig(f"figures/q2_eps_{sorted_eps_to_test[i]:0.1f}.jpg")
+            plt.close()
+
+        plt.hist(original_risks)
+        plt.xlim(xmin=0, xmax=math.ceil(max(original_risks)))
+        plt.ylim(ymin=0, ymax=len(df))
+        # plt.xlabel("risk score")
+        # plt.ylabel("count")
+        plt.tight_layout()
+        plt.savefig(f"figures/q2_original.jpg")
+        plt.close()
 
         return best_eps
 
@@ -722,30 +1149,30 @@ if __name__ == '__main__':
     # df = pd.read_csv("adult.csv")
     # df = df[["age", "education", "education.num", "race", "income"]]
     # df.rename(columns={'education.num': 'education_num'}, inplace=True)
-    # df = df.sample(100, random_state=0, ignore_index=True)
+    # df = df.sample(1000, random_state=0, ignore_index=True)
     df = pd.read_csv("adult_100_sample.csv")
     df.rename(columns={'education.num': 'education_num'}, inplace=True)
     # df["row_num"] = df.reset_index().index
     # print(df)
 
-    # size = 100, eps = 2.0
-    # query_string = "SELECT COUNT(*) FROM adult WHERE education_num >= 13 AND income == '>50K'"
-    # size = 100, eps = 10.0
-    # query_string = "SELECT AVG(age) FROM adult WHERE income == '>50K'"
-    # size = 100, eps = 1.0
-    query_string = "SELECT race, COUNT(*) FROM adult WHERE education_num >= 13 GROUP BY race"
+    # query_string = "SELECT COUNT(*) FROM adult WHERE age < 40 AND income == '>50K'"
+    # query_string = "SELECT AVG(age) FROM adult WHERE income == '>50K' AND education_num == 13" #education_num == 13
+    query_string = "SELECT race, COUNT(*) FROM adult WHERE education_num >= 14 AND income == '<=50K' GROUP BY race"
     # query_string = "SELECT AVG(age) from PUMS"
+    # query_string = "SELECT COUNT(*) FROM (SELECT COUNT(age) as cnt FROM adult GROUP BY age) WHERE cnt > 2"
 
-    # design epsilons to test in a way that smaller eps are more frequent and largest eps are less
-    eps_list = list(np.arange(0.01, 0.1, 0.01, dtype=float))
-    eps_list += list(np.arange(0.1, 1.1, 0.1, dtype=float))
-    eps_list += list(np.arange(1, 11, 1, dtype=float))
+    # design epsilons to test in analytics_server way that smaller eps are more frequent and largest eps are less
+    # eps_list = list(np.arange(0.01, 0.1, 0.01, dtype=float))
+    # eps_list = list(np.arange(0.1, 1.1, 0.1, dtype=float))
+    # eps_list = list(np.arange(1, 11, 1, dtype=float))
     # eps_list += list(np.arange(10, 101, 10, dtype=float))
-    # eps_list = [10.0]
+    eps_list = list(np.arange(0.5, 5.1, 0.5, dtype=float))
+
+    # eps_list = [6.0]
     # print(eps_list)
 
     start_time = time.time()
-    eps = find_epsilon(df, query_string, 10, eps_list, 10, 0.05)
+    eps = find_epsilon_us(df, query_string, 10, eps_list, 30, 0.05)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

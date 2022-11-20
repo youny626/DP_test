@@ -1,0 +1,41 @@
+Q1 - control_1,Q2 - control_1,Q1 - test_1,Q2 - test_1,Q6,Q7,Duration (in seconds),follow up,initial q
+3,4,,,No preference,I prefer having both results,451,,I don't know anything about differential privacy
+"",,2,1.5,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,762,Yes,I know about differential privacy but I've never used it in practice
+1.5,1,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,731,,I know about differential privacy but I've never used it in practice
+2,4,,,I prefer knowing only the prediction accuracy on the noisy data,I prefer having both results,813,,I don't know anything about differential privacy
+2,4,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,866,,I don't know anything about differential privacy
+2.5,4,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having only the result on the noisy data,402,,I don't know anything about differential privacy
+"",,2,2.5,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having only the result on the noisy data,608,Yes,I don't know anything about differential privacy
+3.5,3.5,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having only the result on the noisy data,972,,I know about differential privacy but I've never used it in practice
+2.5,3.5,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,436,,I don't know anything about differential privacy
+2.5,2,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having only the result on the noisy data,636,,I don't know anything about differential privacy
+"",,3.5,4.5,I prefer knowing only the prediction accuracy on the noisy data,I prefer having both results,689,Yes,I know about differential privacy but I've never used it in practice
+"",,2,3.5,I prefer knowing only the prediction accuracy on the noisy data,I prefer having only the result on the noisy data,625,Yes,I don't know anything about differential privacy
+2.5,1.5,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,397,,I know about differential privacy but I've never used it in practice
+"",,4,3.5,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having only the result on the noisy data,778,Yes,I don't know anything about differential privacy
+1.5,2,,,I prefer knowing only the prediction accuracy on the noisy data,I prefer having both results,580,,I don't know anything about differential privacy
+"",,2,2,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,1699,Yes,I don't know anything about differential privacy
+"",,2,3.5,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,357,Yes,I don't know anything about differential privacy
+"",,3,4,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,901,Yes,I don't know anything about differential privacy
+"",,0.5,2,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,1857,Yes,I don't know anything about differential privacy
+"",,1.5,2.5,I prefer knowing only the prediction accuracy on the noisy data,I prefer having both results,699,Yes,I don't know anything about differential privacy
+3.5,2.5,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,748,,I don't know anything about differential privacy
+3.5,4,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,517,,I know about differential privacy but I've never used it in practice
+"",,1.5,2,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having only the result on the noisy data,1727,Yes,I know about differential privacy but I've never used it in practice
+1,1.5,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,505,,I know about differential privacy but I've never used it in practice
+"",,2.5,3.5,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,423,Yes,I know about differential privacy but I've never used it in practice
+3,3.5,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having only the result on the noisy data,1550,,I know about differential privacy and I've used it in practice
+2,1.5,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,1058,,I don't know anything about differential privacy
+"",,2,2.5,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,1003,Yes,I know about differential privacy but I've never used it in practice
+"",,2,2,I prefer knowing only the prediction accuracy on the noisy data,I prefer having both results,807,Yes,I know about differential privacy and I've used it in practice
+3.5,3.5,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having only the result on the noisy data,558,,I don't know anything about differential privacy
+"",,1.5,2,I prefer knowing only the prediction accuracy on the noisy data,I prefer having only the result on the noisy data,503,Yes,I know about differential privacy but I've never used it in practice
+3,4,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,549,,I don't know anything about differential privacy
+"",,3.5,2.5,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,1587,Yes,I know about differential privacy and I've used it in practice
+4,4,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,459,,I know about differential privacy and I've used it in practice
+"",,2,2.5,I prefer knowing only the prediction accuracy on the noisy data,I prefer having only the result on the noisy data,571,Yes,I don't know anything about differential privacy
+2,3.5,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,590,,I know about differential privacy but I've never used it in practice
+"",,1.5,4,I prefer knowing only the prediction accuracy on the noisy data,I prefer having both results,1002,Yes,I don't know anything about differential privacy
+2.5,4,,,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having only the result on the noisy data,862,,I don't know anything about differential privacy
+"",,1,3.5,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,408,Yes,I don't know anything about differential privacy
+"",,3,2.5,I prefer knowing the prediction accuracy on both noisy data and original data,I prefer having both results,163,Yes,I know about differential privacy but I've never used it in practice

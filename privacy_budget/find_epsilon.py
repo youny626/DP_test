@@ -18,7 +18,7 @@ from snsql._ast.ast import Top
 from sqlalchemy import create_engine
 from pandas.io.sql import to_sql, read_sql
 import matplotlib.pyplot as plt
-
+from statsmodels.stats.multitest import fdrcorrection
 
 def get_metadata(df: pd.DataFrame, name: str):
     metadata = {}
@@ -62,7 +62,6 @@ def get_metadata(df: pd.DataFrame, name: str):
 
 
 def fdr(p_values, q):
-    from statsmodels.stats.multitest import fdrcorrection
     rejected, pvalue_corrected = fdrcorrection(p_values, alpha=q)
     # print(any(rejected))
     return any(rejected)
@@ -94,7 +93,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
                           postprocess=True):
     # if isinstance(query, str):
     #     raise ValueError("Please pass AST to _execute_ast.")
-    # 
+    #
     # subquery, query = self._rewrite_ast(query)
 
     if pre_aggregated is not None:
@@ -469,6 +468,7 @@ def extract_table_names(query):
 def find_epsilon(df: pd.DataFrame,
                  query_string: str,
                  risk_group_percentile: int,
+                 risk_group_size: int,
                  eps_to_test: list,
                  num_runs: int,
                  q: float):
@@ -576,23 +576,34 @@ def find_epsilon(df: pd.DataFrame,
         # idx1 = sorted_original_risks.index(
         #     np.percentile(sorted_original_risks, risk_group_percentile, interpolation='nearest'))
 
-        if risk_group_percentile > 50:
-            risk_group_percentile = 100 - risk_group_percentile
+        if risk_group_percentile > 0:
 
-        val1 = np.percentile(sorted_original_risks, risk_group_percentile, interpolation='nearest')
-        # last index of val1
-        idx1 = max(loc for loc, val in enumerate(sorted_original_risks) if abs(val - val1) <= 10e-8)
+            if risk_group_percentile > 50:
+                risk_group_percentile = 100 - risk_group_percentile
 
-        # idx2 = sorted_original_risks.index(
-        #     np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest'))
-        val2 = np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest')
-        # first index of val2
-        idx2 = sorted_original_risks.index(val2)
+            val1 = np.percentile(sorted_original_risks, risk_group_percentile, interpolation='nearest')
+            # last index of val1
+            idx1 = max(loc for loc, val in enumerate(sorted_original_risks) if abs(val - val1) <= 10e-8)
+
+            # idx2 = sorted_original_risks.index(
+            #     np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest'))
+            val2 = np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest')
+            # first index of val2
+            idx2 = sorted_original_risks.index(val2)
+
+        else:
+
+            if risk_group_size > len(sorted_original_risks):
+                print("risk_group_size larger than total size")
+                return None
+
+            idx1 = risk_group_size - 1
+            idx2 = len(sorted_original_risks) - risk_group_size + 1
 
         # print(val1, val2)
         # if idx1 > idx2:
         #     idx1, idx2 = idx2, idx1
-        print(idx1, idx2)
+        print("risk group idx:", idx1, idx2)
 
         # sample1 = sorted_original_risks[:idx1 + 1]
         # sample2 = sorted_original_risks[idx2:]
@@ -739,7 +750,7 @@ def find_epsilon(df: pd.DataFrame,
 
         sqlite_connection.close()
 
-        return best_eps
+        return best_eps, dp_result # also return the dp result computed
 
 
 def find_epsilon_us(df: pd.DataFrame,
@@ -1114,29 +1125,74 @@ def find_epsilon_us(df: pd.DataFrame,
             original_risks = [float(x) / s * 100 for x in original_risks]
         print(pd.DataFrame(original_risks).describe())
 
+        if max_risk < max(original_risks):
+            max_risk = max(original_risks)
+
         plt.rcParams['figure.figsize'] = [3, 2]
 
+        medianprops = dict(linestyle=None, linewidth=0)
+        whiskerprops = dict(linewidth=2)
+        capprops = dict(linewidth=2)
+        boxprops = dict(linestyle=None, linewidth=0)
+
+        # plt.yticks(fontsize=14)
 
         for i, med_risks in enumerate(risks):
 
             # plt.rcParams['figure.dpi'] = 100
-            plt.hist(med_risks)
-            plt.xlim(xmin=-1, xmax=math.ceil(max_risk)) #math.ceil(max_risk)
-            plt.ylim(ymin=0, ymax=len(df))
+            # plt.hist(med_risks)
+
+
+            # plt.boxplot(med_risks,
+            #             whis=[0, 100],
+            #             medianprops=medianprops,
+            #             whiskerprops=whiskerprops,
+            #             capprops=capprops,
+            #             boxprops=boxprops)
+            plt.errorbar(x=1, y=0, yerr=[[min(med_risks)], [max(med_risks)]], fmt='none', capsize=10, elinewidth=2, capthick=2)
+            # plt.xlim(xmin=-1, xmax=math.ceil(max_risk)) #math.ceil(max_risk)
+            # plt.ylim(ymax=13)
+            plt.yticks(ticks=[0, 2.5, 5.0, 7.5, 10.0, 12.5], labels=[0, 2.5, 5.0, 7.5, 10.0, 12.5])
             # plt.xlim(xmin=0)
             # plt.xlabel("risk score")
-            # plt.ylabel("count")
+            plt.ylabel("Range of Risk Scores")
+            # plt.tick_params(
+            #     axis='x',  # changes apply to the x-axis
+            #     which='both',  # both major and minor ticks are affected
+            #     bottom=False,  # ticks along the bottom edge are off
+            #     top=False,  # ticks along the top edge are off
+            #     labelbottom=False)  # labels along the bottom edge are off
+            plt.xticks([], [])
             plt.tight_layout()
-            plt.savefig(f"figures/q2_eps_{sorted_eps_to_test[i]:0.1f}.jpg")
+            plt.savefig(f"figures/q1_eps_{sorted_eps_to_test[i]:0.1f}_box.jpg")
             plt.close()
 
-        plt.hist(original_risks)
-        plt.xlim(xmin=0, xmax=math.ceil(max(original_risks)))
-        plt.ylim(ymin=0, ymax=len(df))
+        # plt.hist(original_risks)
+        # plt.boxplot(original_risks,
+        #             whis=[0, 100],
+        #             medianprops=medianprops,
+        #             whiskerprops=whiskerprops,
+        #             capprops=capprops,
+        #             boxprops=boxprops)
+        plt.errorbar(x=1, y=0, yerr=[[min(original_risks)], [max(original_risks)]], fmt='none', capsize=10, elinewidth=2, capthick=2)
+        # plt.xlim(xmin=0, xmax=math.ceil(max(original_risks)))
+        # plt.ylim(ymax=13)
+        plt.yticks(ticks=[0, 2.5, 5.0, 7.5, 10.0, 12.5], labels=[0, 2.5, 5.0, 7.5, 10.0, 12.5])
+
+        plt.ylabel("Range of Risk Scores")
+        plt.xticks([], [])
         # plt.xlabel("risk score")
         # plt.ylabel("count")
         plt.tight_layout()
-        plt.savefig(f"figures/q2_original.jpg")
+
+        # plt.tick_params(
+        #     axis='x',  # changes apply to the x-axis
+        #     which='both',  # both major and minor ticks are affected
+        #     bottom=False,  # ticks along the bottom edge are off
+        #     top=False,  # ticks along the top edge are off
+        #     labelbottom=False)  # labels along the bottom edge are off
+
+        plt.savefig(f"figures/q1_original_box.jpg")
         plt.close()
 
         return best_eps
@@ -1155,9 +1211,9 @@ if __name__ == '__main__':
     # df["row_num"] = df.reset_index().index
     # print(df)
 
-    # query_string = "SELECT COUNT(*) FROM adult WHERE age < 40 AND income == '>50K'"
+    query_string = "SELECT COUNT(*) FROM adult WHERE age < 40 AND income == '>50K'"
     # query_string = "SELECT AVG(age) FROM adult WHERE income == '>50K' AND education_num == 13" #education_num == 13
-    query_string = "SELECT race, COUNT(*) FROM adult WHERE education_num >= 14 AND income == '<=50K' GROUP BY race"
+    # query_string = "SELECT race, COUNT(*) FROM adult WHERE education_num >= 14 AND income == '<=50K' GROUP BY race"
     # query_string = "SELECT AVG(age) from PUMS"
     # query_string = "SELECT COUNT(*) FROM (SELECT COUNT(age) as cnt FROM adult GROUP BY age) WHERE cnt > 2"
 
@@ -1172,7 +1228,7 @@ if __name__ == '__main__':
     # print(eps_list)
 
     start_time = time.time()
-    eps = find_epsilon_us(df, query_string, 10, eps_list, 30, 0.05)
+    eps = find_epsilon_us(df, query_string, 10, eps_list, 10, 0.05)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

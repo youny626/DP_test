@@ -16,6 +16,7 @@ import crypte_new.src.crypte.core as cte
 from crypte_new.src.crypte.core import Cdata
 from crypte_new.src.crypte.core import CSP, AS
 from multiprocessing import Process, Manager
+import sys
 
 
 class CrypteTest:
@@ -69,7 +70,7 @@ class CrypteTest:
             return encnt
 
         c = self.analytics_server.execute(_count_filter, attr_num, start, end)
-        print("\n")
+        # print("\n")
         print("True counting output is", self.cs.reveal_clear(c))
 
         sens = 1
@@ -90,7 +91,7 @@ class CrypteTest:
         attr_copy = self.cdata.get_attr().copy()
 
         c = self.analytics_server.execute(_group_by, attr_num)
-        print("\n")
+        # print("\n")
         print("True group by output is", self.cs.reveal_clear_vector(c))
         sens = 1
         # print(self.attributes, attr_num-1)
@@ -148,7 +149,7 @@ class CrypteTest:
             return encnt
 
         c = self.analytics_server.execute(test_group_by_filter, group_by_attr_num, filter_attr_num, start, end)
-        print("\n")
+        # print("\n")
         print("True group by output is", self.cs.reveal_clear_vector(c))
         sens = 1
         # print(self.attributes, attr_num-1)
@@ -232,7 +233,7 @@ def encode_and_bind(original_dataframe, feature_to_encode):
 
 if __name__ == '__main__':
 
-    epsilon = 1.0
+    epsilon = 10.0
 
     df = pd.read_csv("adult.csv")
     # df.drop(["Unnamed: 0", "state", "puma", "income", "latino", "black", "asian"], axis=1, inplace=True)
@@ -264,6 +265,7 @@ if __name__ == '__main__':
     # print(cdata)
 
     # f = open("log_parallel.txt", "w")
+    f = open(sys.argv[1], "w")
 
     crypte = CrypteTest(crypte_attrs, epsilon)
     # start = time.time()
@@ -312,6 +314,7 @@ if __name__ == '__main__':
     enc_data = crypte.deserialize("crypte_data_parallel.json")
     elapsed = time.time() - start
     print(f"time to deserialize: {elapsed} s")
+    f.write(f"time to deserialize: {elapsed} s\n")
 
     # mvec = [pro.lab_decrypt_vector(crypte.sk, v) for v in enc_data]
     # print(mvec)
@@ -324,6 +327,7 @@ if __name__ == '__main__':
     res = crypte.count_filter(attr_num=1, start=4, end=14, epsilon=0.1)
     elapsed = time.time() - start
     print(f"query1 time: {elapsed} s")
+    f.write(f"query1 time: {elapsed} s\n")
 
     # print(crypte.analytics_server.data.get_attr())
 
@@ -331,16 +335,18 @@ if __name__ == '__main__':
     res = crypte.group_by(attr_num=2, epsilon=0.1)
     elapsed = time.time() - start
     print(f"query2 time: {elapsed} s")
+    f.write(f"query2 time: {elapsed} s\n")
 
     start = time.time()
     res = crypte.cross_product_filter(attr1=3, attr2=4, start=2, end=2, epsilon=0.1)
     elapsed = time.time() - start
     print(f"query3 time: {elapsed} s")
+    f.write(f"query3 time: {elapsed} s\n")
 
-    start = time.time()
-    res = crypte.cross_product_filter(attr1=1, attr2=4, start=77, end=87, epsilon=0.1)
-    elapsed = time.time() - start
-    print(f"query4 time: {elapsed} s")
+    # start = time.time()
+    # res = crypte.cross_product_filter(attr1=1, attr2=4, start=77, end=87, epsilon=0.1)
+    # elapsed = time.time() - start
+    # print(f"query4 time: {elapsed} s")
 
     # print(crypte.analytics_server.data.get_attr())
 
@@ -348,4 +354,6 @@ if __name__ == '__main__':
     # res = crypte.group_by_filter(group_by_attr_num=3, filter_attr_num=4, start=1, end=1, epsilon=0.1)
     # elapsed = time.time() - start
     # print(f"query time: {elapsed} s")
+
+    f.close()
 

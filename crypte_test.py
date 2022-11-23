@@ -311,7 +311,7 @@ if __name__ == '__main__':
     # f.close()
 
     start = time.time()
-    enc_data = crypte.deserialize("crypte_data_parallel.json")
+    enc_data = crypte.deserialize("crypte_data.json")
     elapsed = time.time() - start
     print(f"time to deserialize: {elapsed} s")
     f.write(f"time to deserialize: {elapsed} s\n")

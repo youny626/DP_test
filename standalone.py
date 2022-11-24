@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine
 from pandas.io.sql import to_sql, read_sql
 import pandas as pd
-from find_epsilon import extract_table_names, get_metadata
+from privacy_budget.find_epsilon import extract_table_names, get_metadata
 import re
 import snsql
 from snsql import Privacy

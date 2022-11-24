@@ -47,7 +47,7 @@ def query(df, query_string):
 
 if __name__ == '__main__':
 
-    df = pd.read_csv("../adult_age_race_sex_income.csv")
+    df = pd.read_csv("/home/cc/DP_test/adult_age_race_sex_income.csv")
 
     num_runs = 10
 

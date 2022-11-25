@@ -25,7 +25,7 @@ if __name__ == '__main__':
                "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
                ]
 
-    tests = ["ks", "es"]
+    tests = ["es"]
 
     for test in tests:
 

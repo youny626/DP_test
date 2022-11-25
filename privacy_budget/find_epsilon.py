@@ -764,6 +764,7 @@ def find_epsilon(df: pd.DataFrame,
                 # s2 = sum(new_risks2)
                 # if s2 != 0:
                 #     new_risks2 = [float(x) / s2 for x in new_risks2]
+
                 new_risks1 = preprocessing.normalize([new_risks1])[0]
                 new_risks2 = preprocessing.normalize([new_risks2])[0]
 
@@ -779,6 +780,19 @@ def find_epsilon(df: pd.DataFrame,
                 elif test == "ks":
                     cur_res = stats.ks_2samp(new_risks1, new_risks2)  # , method="exact")
                 elif test == "es":
+                    # for i1 in range(len(new_risks1)):
+                    #     if new_risks1[i1] == 0.0:
+                    #         new_risks1[i1] += 1e-100
+                    # for i2 in range(len(new_risks2)):
+                    #     if new_risks2[i2] == 0.0:
+                    #         new_risks2[i2] += 1e-100
+                    #
+                    if "education_num" in query_string:
+                        for i1 in range(len(new_risks1)):
+                            if new_risks1[i1] == 0.0:
+                                new_risks1[i1] += 1e-100
+                    # print(new_risks1)
+                    # print(new_risks2)
                     cur_res = stats.epps_singleton_2samp(new_risks1, new_risks2)
 
                 p_value = cur_res[1]
@@ -1308,7 +1322,7 @@ if __name__ == '__main__':
     # print(eps_list)
 
     start_time = time.time()
-    eps = find_epsilon(df, query_string, -1, 1000, eps_list, 1, 0.05, test="mw")
+    eps = find_epsilon(df, query_string, -1, 100, eps_list, 1, 0.05, test="es")
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

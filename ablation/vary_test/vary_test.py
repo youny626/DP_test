@@ -59,13 +59,20 @@ if __name__ == '__main__':
 
                 res_eps.append(best_eps)
 
+                with open(f"test_{test}_eps.log", "a") as f:
+                    for eps in res_eps_list:
+                        f.write(str(eps)[1:-1] + "\n")
+                with open(f"test_{test}_time.log", "a") as f:
+                    for times in time_list:
+                        f.write(str(times)[1:-1] + "\n")
+
             res_eps_list.append(res_eps)
             time_list.append(times)
 
-        with open(f"test_{test}_eps.log", "w") as f:
+        with open(f"test_{test}_eps1.log", "w") as f:
             for eps in res_eps_list:
                 f.write(str(eps)[1:-1] + "\n")
 
-        with open(f"test_{test}_time.log", "w") as f:
+        with open(f"test_{test}_time1.log", "w") as f:
             for times in time_list:
                 f.write(str(times)[1:-1] + "\n")

@@ -20,6 +20,7 @@ from pandas.io.sql import to_sql, read_sql
 import matplotlib.pyplot as plt
 from statsmodels.stats.multitest import fdrcorrection
 from sql_metadata import Parser
+from sklearn import preprocessing
 
 
 def get_metadata(df: pd.DataFrame, name: str):
@@ -532,8 +533,8 @@ def find_epsilon(df: pd.DataFrame,
 
         original_result = read_sql(sql=query_string, con=sqlite_connection)
         # res = [tuple([col for col in q_result.columns])] + [val[1:] for val in q_result.itertuples()]
-        print("original_result")
-        print(original_result)
+        # print("original_result")
+        # print(original_result)
         # print(res)
 
         if len(original_result.select_dtypes(include=np.number).columns) > 1:
@@ -571,9 +572,15 @@ def find_epsilon(df: pd.DataFrame,
 
                 # print(cur_query)
                 cur_result = read_sql(sql=cur_query, con=sqlite_connection)
-                # print(cur_result)
+                # print(cur_result.sum(numeric_only=True).sum())
+                # if cur_result.sum(numeric_only=True).sum() != 14:
+                #     print(cur_result)
+                #     exit()
 
                 risk_score = abs(cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
+                # if risk_score > 0:
+                #     print(risk_score)
+                #     exit()
 
                 risk_score_cache[column_values] = risk_score
             else:
@@ -583,7 +590,9 @@ def find_epsilon(df: pd.DataFrame,
 
         # print(original_risks)
         elapsed = time.time() - start_time
-        print(f"time to compute original risk: {elapsed} s")
+        # print(f"time to compute original risk: {elapsed} s")
+
+        # print(pd.DataFrame(original_risks).describe())
 
         # return None
 
@@ -622,7 +631,7 @@ def find_epsilon(df: pd.DataFrame,
         # print(val1, val2)
         # if idx1 > idx2:
         #     idx1, idx2 = idx2, idx1
-        print("risk group idx:", idx1, idx2)
+        # print("risk group idx:", idx1, idx2)
 
         # sample1 = sorted_original_risks[:idx1 + 1]
         # sample2 = sorted_original_risks[idx2:]
@@ -657,7 +666,7 @@ def find_epsilon(df: pd.DataFrame,
         # query_string = query_string.replace(f" {table_name} ", f" {table_name}.{table_name} ")
         query_string = re.sub(f" FROM {table_name}", f" FROM {table_name}.{table_name}", query_string, flags=re.IGNORECASE)
 
-        for eps in tqdm.tqdm(sorted_eps_to_test):
+        for eps in sorted_eps_to_test:
 
             print(f"epsilon = {eps}")
 
@@ -677,7 +686,7 @@ def find_epsilon(df: pd.DataFrame,
             # print(subquery)
             # print(query)
 
-            for j in tqdm.tqdm(range(num_runs)):
+            for j in range(num_runs):
 
                 # if reject_null:
                 #     continue # this eps does not equalize risks, skip
@@ -749,12 +758,14 @@ def find_epsilon(df: pd.DataFrame,
 
 
                 # normalize
-                s1 = sum(new_risks1)
-                if s1 != 0:
-                    new_risks1 = [float(x) / s1 for x in new_risks1]
-                s2 = sum(new_risks2)
-                if s2 != 0:
-                    new_risks2 = [float(x) / s2 for x in new_risks2]
+                # s1 = sum(new_risks1)
+                # if s1 != 0:
+                #     new_risks1 = [float(x) / s1 for x in new_risks1]
+                # s2 = sum(new_risks2)
+                # if s2 != 0:
+                #     new_risks2 = [float(x) / s2 for x in new_risks2]
+                new_risks1 = preprocessing.normalize([new_risks1])[0]
+                new_risks2 = preprocessing.normalize([new_risks2])[0]
 
                 elapsed = time.time() - start_time
                 # print(f"{j}th compute risk time: {elapsed} s")
@@ -786,20 +797,25 @@ def find_epsilon(df: pd.DataFrame,
             # to determine if this epsilon is good enough
             # For now we use false discovery rate
             # print(p_values)
-            if not fdr(p_values, q):  # q = proportion of false positives we will accept
-                # We want no discovery (fail to reject null) for all n runs
-                # If we fail to reject the null, then we break the loop.
-                # The current epsilon is the one we choose
-                best_eps = eps
-                break
+            if num_runs > 1:
+                if not fdr(p_values, q):  # q = proportion of false positives we will accept
+                    # We want no discovery (fail to reject null) for all n runs
+                    # If we fail to reject the null, then we break the loop.
+                    # The current epsilon is the one we choose
+                    best_eps = eps
+                    break
+            else:
+                if p_values[0] > q:
+                    best_eps = eps
+                    break
 
             # TODO: if we find a lot of discoveries (a lot of small p-values),
             #  we can skip epsilons that are close to the current eps (ex. 10 to 9).
             #  If there's only a few discoveries,
             #  we should probe epsilons that are close (10 to 9.9)
 
-        print(f"total time to compute new risk: {compute_risk_time} s")
-        print(f"total time to test equal distribution: {test_equal_distrbution_time} s")
+        # print(f"total time to compute new risk: {compute_risk_time} s")
+        # print(f"total time to test equal distribution: {test_equal_distrbution_time} s")
 
         sqlite_connection.close()
 
@@ -1258,25 +1274,32 @@ if __name__ == '__main__':
     # csv_path = '../PUMS.csv'
     # df = pd.read_csv(csv_path)#.head(100)
     # print(df.head())
-    df = pd.read_csv("../adult.csv")
+    df = pd.read_csv("../scalability/adult_100000.csv")
+    # df = pd.read_csv("../adult.csv")
     # df = df[["age", "education", "education.num", "race", "income"]]
     # df.rename(columns={'education.num': 'education_num'}, inplace=True)
     # df = df.sample(1000, random_state=0, ignore_index=True)
     # df = pd.read_csv("adult_100_sample.csv")
-    df.rename(columns={'education.num': 'education_num'}, inplace=True)
+    # df.rename(columns={'education.num': 'education_num'}, inplace=True)
     # df["row_num"] = df.reset_index().index
     # print(df)
 
-    query_string = "SELECT COUNT(*) FROM adult WHERE age < 40 AND income == '>50K'"
-    # query_string = "SELECT AVG(age) FROM adult WHERE income == '>50K' AND education_num == 13" #education_num == 13
+    # query_string = "SELECT COUNT(*) FROM adult WHERE age < 40 AND income == '>50K'"
     # query_string = "SELECT race, COUNT(*) FROM adult WHERE education_num >= 14 AND income == '<=50K' GROUP BY race"
-    # query_string = "SELECT AVG(age) from PUMS"
-    # query_string = "SELECT COUNT(*) FROM (SELECT COUNT(age) as cnt FROM adult GROUP BY age) WHERE cnt > 2"
+
+    query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
+    # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
+    # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
+    # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
+    # query_string = "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
+
+    # query_string = "SELECT AVG(capital_loss) FROM adult WHERE hours_per_week > 40 AND workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
+
 
     # design epsilons to test in analytics_server way that smaller eps are more frequent and largest eps are less
     eps_list = list(np.arange(0.001, 0.01, 0.001, dtype=float))
-    eps_list += list(np.arange(0.01, 0.11, 0.01, dtype=float))
-    eps_list += list(np.arange(0.1, 1.1, 0.1, dtype=float))
+    eps_list += list(np.arange(0.01, 0.1, 0.01, dtype=float))
+    eps_list += list(np.arange(0.1, 1, 0.1, dtype=float))
     eps_list += list(np.arange(1, 11, 1, dtype=float))
     # eps_list += list(np.arange(10, 101, 10, dtype=float))
     # eps_list = list(np.arange(0.5, 5.1, 0.5, dtype=float))
@@ -1285,7 +1308,7 @@ if __name__ == '__main__':
     # print(eps_list)
 
     start_time = time.time()
-    eps = find_epsilon(df, query_string, -1, 100, eps_list, 5, 0.05)
+    eps = find_epsilon(df, query_string, -1, 1000, eps_list, 1, 0.05, test="mw")
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

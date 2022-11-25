@@ -1,5 +1,9 @@
 .idea
 .DS_Store
+*.json
+figures
+log*.txt
+adult_1*.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -31,7 +35,7 @@ share/python-wheels/
 MANIFEST
 
 # PyInstaller
-#  Usually these files are written by a python script from a template
+#  Usually these files are written by analytics_server python script from analytics_server template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec

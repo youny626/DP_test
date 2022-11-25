@@ -780,17 +780,13 @@ def find_epsilon(df: pd.DataFrame,
                 elif test == "ks":
                     cur_res = stats.ks_2samp(new_risks1, new_risks2)  # , method="exact")
                 elif test == "es":
-                    # for i1 in range(len(new_risks1)):
-                    #     if new_risks1[i1] == 0.0:
-                    #         new_risks1[i1] += 1e-100
+                    for i1 in range(len(new_risks1)):
+                        if new_risks1[i1] == 0.0:
+                            new_risks1[i1] += 1e-100
                     # for i2 in range(len(new_risks2)):
                     #     if new_risks2[i2] == 0.0:
                     #         new_risks2[i2] += 1e-100
                     #
-                    if "education_num" in query_string:
-                        for i1 in range(len(new_risks1)):
-                            if new_risks1[i1] == 0.0:
-                                new_risks1[i1] += 1e-100
                     # print(new_risks1)
                     # print(new_risks2)
                     cur_res = stats.epps_singleton_2samp(new_risks1, new_risks2)

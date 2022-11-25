@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from privacy_budget.find_epsilon import *
+from ..privacy_budget.find_epsilon import *
 
 if __name__ == '__main__':
     df = pd.read_csv("../scalability/adult_100000.csv")

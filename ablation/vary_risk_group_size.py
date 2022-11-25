@@ -29,25 +29,33 @@ if __name__ == '__main__':
 
     for risk_group_size in sizes:
 
+        print("risk_group_size:", risk_group_size)
+
         res_eps_list = []
         time_list = []
 
         for i in range(num_runs_experiment):
+
+            print("i:", i)
 
             res_eps = []
             times = []
 
             for query_string in queries:
 
+                print(query_string)
+
                 start_time = time.time()
                 res = find_epsilon(df, query_string, -1, 1000, eps_list, 1, 0.05, test="mw")
                 elapsed = time.time() - start_time
-                # print(f"total time: {elapsed} s")
+                print(f"total time: {elapsed} s")
                 times.append(elapsed)
 
                 best_eps = None
                 if res is not None:
                     best_eps = res[0]
+
+                print("eps:", best_eps)
 
                 res_eps.append(best_eps)
 

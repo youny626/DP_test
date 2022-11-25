@@ -8,13 +8,13 @@ if __name__ == '__main__':
     num_runs_experiment = 10
 
     risk_group_percentile = -1
+    risk_group_size = 100
     eps_list = list(np.arange(0.001, 0.01, 0.001, dtype=float))
     eps_list += list(np.arange(0.01, 0.1, 0.01, dtype=float))
     eps_list += list(np.arange(0.1, 1, 0.1, dtype=float))
     eps_list += list(np.arange(1, 11, 1, dtype=float))
     num_runs = 1
     q = 0.05
-    test = "mw"
 
     queries = ["SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25",
                "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age "
@@ -25,11 +25,11 @@ if __name__ == '__main__':
                "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
                ]
 
-    sizes = [100, 500, 1000]
+    tests = ["ks", "es"]
 
-    for risk_group_size in sizes:
+    for test in tests:
 
-        print("risk_group_size:", risk_group_size)
+        print("test:", test)
 
         res_eps_list = []
         time_list = []
@@ -46,7 +46,7 @@ if __name__ == '__main__':
                 print(query_string)
 
                 start_time = time.time()
-                res = find_epsilon(df, query_string, -1, risk_group_size, eps_list, 1, 0.05, test="mw")
+                res = find_epsilon(df, query_string, -1, risk_group_size, eps_list, 1, 0.05, test=test)
                 elapsed = time.time() - start_time
                 print(f"total time: {elapsed} s")
                 times.append(elapsed)
@@ -62,10 +62,10 @@ if __name__ == '__main__':
             res_eps_list.append(res_eps)
             time_list.append(times)
 
-        with open(f"size_{risk_group_size}_eps.log", "w") as f:
+        with open(f"test_{test}_eps.log", "w") as f:
             for eps in res_eps_list:
                 f.write(str(eps)[1:-1] + "\n")
 
-        with open(f"size_{risk_group_size}_time.log", "w") as f:
+        with open(f"test_{test}_time.log", "w") as f:
             for times in time_list:
                 f.write(str(times)[1:-1] + "\n")

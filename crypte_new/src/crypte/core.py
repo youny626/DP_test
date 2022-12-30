@@ -18,7 +18,7 @@ from .lapmec import *
 from copy import copy
 
 '''
-    Filter function that returns analytics_server new Cdata object
+    Filter function that returns a new Cdata object
 '''
 
 
@@ -42,7 +42,7 @@ def filter(obj, attr_pred, val_pred_1, val_pred_2):
 
 
 '''
-    Project function that returns analytics_server new Cdata object
+    Project function that returns a new Cdata object
 '''
 
 
@@ -66,7 +66,7 @@ def project(obj, attr_pred):
 
 
 '''
-    Project function that returns analytics_server new Cdata object
+    Project function that returns a new Cdata object
 '''
 
 
@@ -206,10 +206,10 @@ def enc_count(v):
 class Cdata:
     '''
     Constructor:  Set up the database schema
-    @param attr:  analytics_server list of integers denote the database schema,
+    @param attr:  a list of integers denote the database schema,
                   each number dentoe one attribute and the value denote
                   the domain size
-                  Example schema<analytics_server,b,c> such that dom(analytics_server)=2, dom(b), dom(c)=2
+                  Example schema<a,b,c> such that dom(a)=2, dom(b), dom(c)=2
                   is denoted as attr = [2,5,2]
     @param db:    an existing db setup
     '''

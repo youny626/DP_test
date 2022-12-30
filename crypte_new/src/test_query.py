@@ -57,7 +57,7 @@ class TestClient(unittest.TestCase):
         
         
         c = a.execute(test_q1, 2, 3, 4)
-        #c = analytics_server.laplace_distort(20, 0.5, 1, c)
+        #c = a.laplace_distort(20, 0.5, 1, c)
         self.assertEqual(55, cs.reveal_clear(c))
         
         
@@ -226,7 +226,7 @@ class TestClient(unittest.TestCase):
         data = [1, 0, 1, 0]
         c = pro.lab_encrypt_vector(pk, data)
         a.insert_to_db(c)
-        # analytics_server.insert_to_db(c)
+        # a.insert_to_db(c)
         print(x.get_data())
         print(len(x.get_data()), len(x.get_data()[0]), len(x.get_data()[0][0]))
             

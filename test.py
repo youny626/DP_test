@@ -167,7 +167,7 @@ if __name__ == '__main__':
     shuffler_res, shuffler_time = np.zeros(num_iters), 0
     crypte_res, crypte_time = np.zeros(num_iters), 0
 
-    print("\nrange(over analytics_server single attribute): COUNT(20 <= age <= 30)")
+    print("\nrange(over a single attribute): COUNT(20 <= age <= 30)")
     answer = len(df["age"][df["age"].between(20, 30)])
     print("original: ", answer)
     true_answer = np.full(num_iters, answer)

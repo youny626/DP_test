@@ -21,6 +21,9 @@ import matplotlib.pyplot as plt
 from statsmodels.stats.multitest import fdrcorrection
 from sql_metadata import Parser
 from sklearn import preprocessing
+# import multiprocessing as mp
+import pathos.multiprocessing as mp
+from collections import defaultdict
 
 
 def get_metadata(df: pd.DataFrame, name: str):
@@ -148,7 +151,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
     # tell which are counts, in column order
     is_count = [s.expression.is_count for s in syms]
 
-    # get analytics_server list of mechanisms in column order
+    # get a list of mechanisms in column order
     mechs = private_reader._get_mechanisms(subquery)
     check_sens = [m for m in mechs if m]
     if any([m.sensitivity is np.inf for m in check_sens]):
@@ -169,7 +172,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
         ]
 
     if hasattr(exact_aggregates, "rdd"):
-        # it's analytics_server dataframe
+        # it's a dataframe
         out = exact_aggregates.rdd.map(randomize_row_values)
     elif hasattr(exact_aggregates, "map"):
         # it's an RDD
@@ -186,7 +189,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
     # censor infrequent dimensions
     # if private_reader._options.censor_dims:
     #     if kc_pos is None:
-    #         raise ValueError("Query needs analytics_server key count column to censor dimensions")
+    #         raise ValueError("Query needs a key count column to censor dimensions")
     #     else:
     #         thresh_mech = mechs[kc_pos]
     #         private_reader.tau = thresh_mech.threshold
@@ -220,7 +223,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
     clamp_counts = private_reader._options.clamp_counts
     if clamp_counts:
         if hasattr(out, "rdd"):
-            # it's analytics_server dataframe
+            # it's a dataframe
             out = out.rdd.map(process_clamp_counts)
         elif hasattr(out, "map"):
             # it's an RDD
@@ -335,7 +338,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
         limit_rows = query.select.quantifier.n
     if limit_rows is not None:
         if hasattr(out, "rdd"):
-            # it's analytics_server dataframe
+            # it's a dataframe
             out = out.limit(limit_rows)
         elif hasattr(out, "map"):
             # it's an RDD
@@ -349,7 +352,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
 
     if accuracy == False:
         if hasattr(out, "rdd"):
-            # it's analytics_server dataframe
+            # it's a dataframe
             out = out.rdd.map(drop_accuracy)
         elif hasattr(out, "map"):
             # it's an RDD
@@ -384,7 +387,7 @@ def execute_rewritten_ast(sqlite_connection, table_name, row_num_col, row_num_to
         return out_rows
 
 
-def compute_original_risks(df: pd.DataFrame, query_string: str, metadata: dict, dfs_one_off: list):
+def compute_original_risks_old(df: pd.DataFrame, query_string: str, metadata: dict, dfs_one_off: list):
     privacy = Privacy(epsilon=np.inf, delta=0)  # no privacy
 
     # query_string = "SELECT COUNT(*) from adult.adult"
@@ -460,12 +463,115 @@ def compute_original_risks(df: pd.DataFrame, query_string: str, metadata: dict, 
 
 def extract_table_names(query):
     """ Extract table names from an SQL query. """
-    # analytics_server good old fashioned regex. turns out this worked better than actually parsing the code
+    # a good old fashioned regex. turns out this worked better than actually parsing the code
     tables_blocks = re.findall(r'(?:FROM|JOIN)\s+(\w+(?:\s*,\s*\w+)*)', query, re.IGNORECASE)
     tables = [tbl
               for block in tables_blocks
               for tbl in re.findall(r'\w+', block)]
     return set(tables)
+
+
+def compute_original_risks(df, query_string, idx_to_compute, table_name, row_num_col, original_result):
+
+    original_risks = []
+    # risk_score_cache = {}
+
+    query_string = re.sub(f" WHERE ", f" WHERE ", query_string, flags=re.IGNORECASE)
+    query_string = re.sub(f" FROM ", f" FROM ", query_string, flags=re.IGNORECASE)
+
+    where_pos = query_string.rfind(" WHERE ")  # last pos of WHERE
+    table_name_pos = None
+    # no_where_clause = False
+    if where_pos == -1:
+        # no_where_clause = True
+        table_name_pos = query_string.rfind(f" FROM {table_name}")
+        table_name_pos += len(f" FROM {table_name}")
+    else:
+        where_pos += len(" WHERE ")
+
+    engine = create_engine("sqlite:///:memory:")
+    # engine = create_engine(f"sqlite:///file:memdb{num}?mode=memory&cache=shared&uri=true")
+
+
+    with engine.connect() as conn:
+
+        # start_time = time.time()
+
+        num_rows = to_sql(df, name=table_name, con=conn,
+                          # index=not any(name is None for name in df.index.names),
+                          if_exists="replace")  # load index into db if all levels are named
+        if num_rows != len(df):
+            print("error when loading to sqlite")
+            return None
+
+        # insert_db_time = time.time() - start_time
+        # print(f"time to insert to db: {insert_db_time} s")
+
+        for i in tqdm.tqdm(idx_to_compute):
+
+            if i == -1:
+                original_risks.append(None)
+                continue
+
+            # column_values = tuple(df.iloc[i][query_columns].values)
+            # print(column_values)
+            # if column_values not in risk_score_cache.keys():
+
+            if where_pos == -1:
+                cur_query = query_string[:table_name_pos] + f" WHERE {row_num_col} != {i} " + query_string[
+                                                                                              table_name_pos:]
+            else:
+                cur_query = query_string[:where_pos] + f"{row_num_col} != {i} AND " + query_string[where_pos:]
+
+            # print(cur_query)
+            cur_result = read_sql(sql=cur_query, con=conn)
+            # print(cur_result.sum(numeric_only=True).sum())
+
+            risk_score = abs(
+                cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
+
+            # risk_score_cache[column_values] = risk_score
+            # else:
+            #     risk_score = risk_score_cache[column_values]
+
+            original_risks.append(risk_score)
+
+    # engine.dispose()
+    # original_risks_dict[num] = original_risks
+    # mp_queue.put((num, original_risks))
+
+    return original_risks
+
+
+def compute_dp_risks(indices_to_compute, risk_score_cache_dp, inv_cache, dp_result, sqlite_connection, table_name, row_num_col,
+                     private_reader, subquery, query):
+    dp_risks = []
+
+    for i in indices_to_compute:
+
+        columns_value = inv_cache[i]
+
+        if columns_value in risk_score_cache_dp:
+            # print("in")
+            dp_risks.append(risk_score_cache_dp[columns_value])
+            continue
+
+        cur_result = execute_rewritten_ast(sqlite_connection, table_name, row_num_col, i,
+                                           private_reader, subquery, query)
+        cur_result = private_reader._to_df(cur_result)
+
+        # change = abs(cur_result - dp_result).to_numpy().sum()
+        risk_score = 0
+        if len(cur_result) > 0 and len(dp_result) > 0:
+            risk_score = abs(
+                cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
+
+        dp_risks.append(risk_score)
+        risk_score_cache_dp[columns_value] = risk_score
+
+    # print(risk_score_cache_dp)
+
+    return dp_risks
 
 
 def find_epsilon(df: pd.DataFrame,
@@ -475,7 +581,9 @@ def find_epsilon(df: pd.DataFrame,
                  eps_to_test: list,
                  num_runs: int,
                  q: float,
-                 test: str = "mw"):
+                 test: str = "mw",
+                 num_parallel_processes: int = 8):
+
     with warnings.catch_warnings():
         warnings.simplefilter(action="ignore")
 
@@ -505,92 +613,162 @@ def find_epsilon(df: pd.DataFrame,
         df_copy = df.copy()
         df_copy = df_copy[query_columns]
 
-        risk_score_cache = {}
-
         metadata = get_metadata(df_copy, table_name)
 
-        # original_risks, original_result = compute_original_risks(df, query_string, metadata, dfs_one_off)
-
-        engine = create_engine("sqlite:///:memory:")
-
-        sqlite_connection = engine.connect()
-
-        # just needed to create analytics_server row_num col that doesn't already exist
+        # just needed to create a row_num col that doesn't already exist
         row_num_col = f"row_num_{random.randint(0, 10000)}"
         while row_num_col in df_copy.columns:
             row_num_col = f"row_num_{random.randint(0, 10000)}"
         df_copy[row_num_col] = df_copy.reset_index().index
 
+        # original_risks, original_result = compute_original_risks(df, query_string, metadata, dfs_one_off)
+
+        start_time = time.time()
+
+        engine = create_engine("sqlite:///:memory:")
+        sqlite_connection = engine.connect()
+
         num_rows = to_sql(df_copy, name=table_name, con=sqlite_connection,
-                             index=not any(name is None for name in df_copy.index.names),
-                             if_exists="replace")  # load index into db if all levels are named
+                          # index=not any(name is None for name in df_copy.index.names),
+                          if_exists="replace")  # load index into db if all levels are named
         if num_rows != len(df_copy):
             print("error when loading to sqlite")
             return None
 
-        # table_names = engine.table_names(connection=sqlite_connection)
-        # print(table_names)
+        insert_db_time = time.time() - start_time
+        print(f"time to insert to db: {insert_db_time} s")
+
+        start_time = time.time()
 
         original_result = read_sql(sql=query_string, con=sqlite_connection)
-        # res = [tuple([col for col in q_result.columns])] + [val[1:] for val in q_result.itertuples()]
-        # print("original_result")
-        # print(original_result)
-        # print(res)
 
         if len(original_result.select_dtypes(include=np.number).columns) > 1:
             print("error: can only have one numerical column in the query result")
             return None
 
-        # print(read_sql(sql=f"SELECT * FROM {table_name}", con=sqlite_connection))
+        # print("original_result")
+        # print(original_result)
 
         original_risks = []
 
-        query_string = re.sub(f" WHERE ", f" WHERE ", query_string, flags=re.IGNORECASE)
-        query_string = re.sub(f" FROM ", f" FROM ", query_string, flags=re.IGNORECASE)
+        # start_time = time.time()
 
-        pos = query_string.rfind(" WHERE ")  # last pos of WHERE
-        no_where_clause = False
-        if pos == -1:
-            no_where_clause = True
-            pos2 = query_string.rfind(f" FROM {table_name}")
-            # print(query_string)
-            # print(pos2)
-        else:
-            pos += len(" WHERE ")
+        cache = defaultdict(list)
 
-        for i in range(len(df_copy)):
+        columns_values = list(df[query_columns].itertuples(index=False, name=None))
 
-            column_values = tuple(df_copy.iloc[i][query_columns].values)
-            # print(column_values)
-            if column_values not in risk_score_cache.keys():
+        for i in range(len(columns_values)):
+            cache[columns_values[i]].append(i)
 
-                if no_where_clause:
-                    pos2 += len(f" FROM {table_name}")
-                    cur_query = query_string[:pos2] + f" WHERE {row_num_col} != {i} " + query_string[pos2:]
-                else:
-                    cur_query = query_string[:pos] + f"{row_num_col} != {i} AND " + query_string[pos:]
+        # elapsed = time.time() - start_time
+        # print(f"time to create cache: {elapsed} s")
 
-                # print(cur_query)
-                cur_result = read_sql(sql=cur_query, con=sqlite_connection)
-                # print(cur_result.sum(numeric_only=True).sum())
-                # if cur_result.sum(numeric_only=True).sum() != 14:
-                #     print(cur_result)
-                #     exit()
+        inv_cache = {}
+        indices = np.arange(len(df_copy))
+        indices_to_ignore = []
 
-                risk_score = abs(cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
-                # if risk_score > 0:
-                #     print(risk_score)
-                #     exit()
+        for k, v in cache.items():
 
-                risk_score_cache[column_values] = risk_score
-            else:
-                risk_score = risk_score_cache[column_values]
+            indices_to_ignore += v[1:] # only need to compute risk for one
 
-            original_risks.append(risk_score)
+            for i in v:
+                inv_cache[i] = k
+
+        np.put(indices, indices_to_ignore, [-1] * len(indices_to_ignore))
+
+        idx_split = np.array_split(indices, num_parallel_processes)
+
+        # if num_parallel_processes > 0:
+
+        # def initializer():
+        #     """ensure the parent proc's database connections are not touched
+        #     in the new connection pool"""
+        #     engine.dispose(close=False)
+
+        with mp.Pool(processes=num_parallel_processes) as mp_pool:
+
+            args = [(df_copy, query_string, idx_to_compute, table_name, row_num_col, original_result)
+                    for idx_to_compute in idx_split]
+
+            for cur_original_risks in mp_pool.starmap(compute_original_risks, args):
+                original_risks += cur_original_risks
+
+        # with mp.Manager() as mp_manager:
+        #
+        #     # risk_score_cache = mp_manager.dict()
+        #     original_risks_dict = mp_manager.dict()
+        #     processes = []
+        #
+        #     for i in range(num_parallel_processes):
+        #
+        #         p = mp.Process(target=compute_original_risks,
+        #                        args=(df_copy, query_string, idx_split[i], table_name, row_num_col, original_result, original_risks_dict, i))
+        #         p.start()
+        #
+        #         processes.append(p)
+        #
+        #     for p in processes:
+        #         p.join()
+        #
+        #     for i in range(num_parallel_processes):
+        #         original_risks += original_risks_dict[i]
+
+        for i in range(len(original_risks)):
+            if original_risks[i] is None:
+                idx_computed = cache[inv_cache[i]][0]
+                original_risks[i] = original_risks[idx_computed]
+
+        # else:
+        #
+        # query_string = re.sub(f" WHERE ", f" WHERE ", query_string, flags=re.IGNORECASE)
+        # query_string = re.sub(f" FROM ", f" FROM ", query_string, flags=re.IGNORECASE)
+        #
+        # where_pos = query_string.rfind(" WHERE ")  # last pos of WHERE
+        # # no_where_clause = False
+        # if where_pos == -1:
+        #     # no_where_clause = True
+        #     table_name_pos = query_string.rfind(f" FROM {table_name}")
+        #     table_name_pos += len(f" FROM {table_name}")
+        # else:
+        #     where_pos += len(" WHERE ")
+        #
+        # original_risks_t = []
+        # risk_score_cache = {}
+        #
+        # for i in range(len(df_copy)):
+        #
+        #     column_values = tuple(df_copy.iloc[i][query_columns].values)
+        #     # print(column_values)
+        #     if column_values not in risk_score_cache.keys():
+        #
+        #         if where_pos == -1:
+        #             cur_query = query_string[:table_name_pos] + f" WHERE {row_num_col} != {i} " + query_string[table_name_pos:]
+        #         else:
+        #             cur_query = query_string[:where_pos] + f"{row_num_col} != {i} AND " + query_string[where_pos:]
+        #
+        #         # print(cur_query)
+        #         cur_result = read_sql(sql=cur_query, con=sqlite_connection)
+        #         # print(cur_result.sum(numeric_only=True).sum())
+        #         # if cur_result.sum(numeric_only=True).sum() != 14:
+        #         #     print(cur_result)
+        #         #     exit()
+        #
+        #         risk_score = abs(cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
+        #         # if risk_score > 0:
+        #         #     print(risk_score)
+        #         #     exit()
+        #
+        #         risk_score_cache[column_values] = risk_score
+        #     else:
+        #         risk_score = risk_score_cache[column_values]
+        #
+        #     original_risks_t.append(risk_score)
+        #
+        # assert original_risks == original_risks_t
 
         # print(original_risks)
         elapsed = time.time() - start_time
-        # print(f"time to compute original risk: {elapsed} s")
+        print(f"time to compute original risk: {elapsed} s")
 
         # print(pd.DataFrame(original_risks).describe())
 
@@ -693,7 +871,7 @@ def find_epsilon(df: pd.DataFrame,
 
                 start_time = time.time()
 
-                # better to compute analytics_server new DP result each run
+                # better to compute a new DP result each run
                 # dp_result = private_reader.execute_df(query)
                 # query_ast = private_reader.parse_query_string(query_string)
                 # subquery, query = private_reader._rewrite_ast(query_ast)
@@ -703,70 +881,15 @@ def find_epsilon(df: pd.DataFrame,
 
                 # We get the same samples based on individuals who are present in the original chosen samples
                 # we only need to compute risks for those samples
-                new_risks1 = []
-                new_risks2 = []
-
+                #
                 risk_score_cache_dp = {}
 
-                for i in sample_idx1:
-                    # cur_df = dfs_one_off[i]
-
-                    # private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
-                    # cur_result = private_reader.execute_df(query)
-
-                    column_values = tuple(df_copy.iloc[i][query_columns].values)
-                    # print(column_values)
-                    if column_values not in risk_score_cache_dp.keys():
-
-                        cur_result = execute_rewritten_ast(sqlite_connection, table_name, row_num_col, i, private_reader, subquery, query)
-                        cur_result = private_reader._to_df(cur_result)
-
-                        # change = abs(cur_result - dp_result).to_numpy().sum()
-                        risk_score = 0
-                        if len(cur_result) > 0 and len(dp_result) > 0:
-                            risk_score = abs(cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
-
-                        risk_score_cache_dp[column_values] = risk_score
-
-                    else:
-                        risk_score = risk_score_cache_dp[column_values]
-
-                    new_risks1.append(risk_score)
-
-                for i in sample_idx2:
-                    # cur_df = dfs_one_off[i]
-
-                    column_values = tuple(df_copy.iloc[i][query_columns].values)
-
-                    if column_values not in risk_score_cache_dp.keys():
-
-                        # private_reader = snsql.from_df(cur_df, metadata=metadata, privacy=privacy)
-                        cur_result = execute_rewritten_ast(sqlite_connection, table_name, row_num_col, i, private_reader, subquery, query)
-                        cur_result = private_reader._to_df(cur_result)
-
-                        # change = abs(cur_result - dp_result).to_numpy().sum()
-                        risk_score = 0
-                        if len(cur_result) > 0 and len(dp_result) > 0:
-                            risk_score = abs(cur_result.sum(numeric_only=True).sum() - dp_result.sum(numeric_only=True).sum())
-
-                        risk_score_cache_dp[column_values] = risk_score
-
-                    else:
-                        risk_score = risk_score_cache_dp[column_values]
-
-                    new_risks2.append(risk_score)
-
+                dp_risks1 = compute_dp_risks(sample_idx1, risk_score_cache_dp, inv_cache, dp_result, sqlite_connection, table_name, row_num_col, private_reader, subquery, query)
+                dp_risks2 = compute_dp_risks(sample_idx2, risk_score_cache_dp, inv_cache, dp_result, sqlite_connection, table_name, row_num_col, private_reader, subquery, query)
 
                 # normalize
-                # s1 = sum(new_risks1)
-                # if s1 != 0:
-                #     new_risks1 = [float(x) / s1 for x in new_risks1]
-                # s2 = sum(new_risks2)
-                # if s2 != 0:
-                #     new_risks2 = [float(x) / s2 for x in new_risks2]
-
-                new_risks1 = preprocessing.normalize([new_risks1])[0]
-                new_risks2 = preprocessing.normalize([new_risks2])[0]
+                dp_risks1 = preprocessing.normalize([dp_risks1])[0]
+                dp_risks2 = preprocessing.normalize([dp_risks2])[0]
 
                 elapsed = time.time() - start_time
                 # print(f"{j}th compute risk time: {elapsed} s")
@@ -776,20 +899,14 @@ def find_epsilon(df: pd.DataFrame,
                 start_time = time.time()
 
                 if test == "mw":
-                    cur_res = stats.mannwhitneyu(new_risks1, new_risks2)
+                    cur_res = stats.mannwhitneyu(dp_risks1, dp_risks2)
                 elif test == "ks":
-                    cur_res = stats.ks_2samp(new_risks1, new_risks2)  # , method="exact")
+                    cur_res = stats.ks_2samp(dp_risks1, dp_risks2)  # , method="exact")
                 elif test == "es":
-                    for i1 in range(len(new_risks1)):
-                        if new_risks1[i1] == 0.0:
-                            new_risks1[i1] += 1e-100
-                    # for i2 in range(len(new_risks2)):
-                    #     if new_risks2[i2] == 0.0:
-                    #         new_risks2[i2] += 1e-100
-                    #
-                    # print(new_risks1)
-                    # print(new_risks2)
-                    cur_res = stats.epps_singleton_2samp(new_risks1, new_risks2)
+                    for i1 in range(len(dp_risks1)):
+                        if dp_risks1[i1] == 0.0:
+                            dp_risks1[i1] += 1e-100
+                    cur_res = stats.epps_singleton_2samp(dp_risks1, dp_risks2)
 
                 p_value = cur_res[1]
                 # if p_value < 0.01:
@@ -874,7 +991,7 @@ def find_epsilon_us(df: pd.DataFrame,
 
         df_copy = df.copy()
 
-        # just needed to create analytics_server row_num col that doesn't already exist
+        # just needed to create a row_num col that doesn't already exist
         row_num_col = f"row_num_{random.randint(0, 10000)}"
         while row_num_col in df_copy.columns:
             row_num_col = f"row_num_{random.randint(0, 10000)}"
@@ -1046,7 +1163,7 @@ def find_epsilon_us(df: pd.DataFrame,
 
                 start_time = time.time()
 
-                # better to compute analytics_server new DP result each run
+                # better to compute a new DP result each run
                 # dp_result = private_reader.execute_df(query)
                 # query_ast = private_reader.parse_query_string(query_string)
                 # subquery, query = private_reader._rewrite_ast(query_ast)
@@ -1187,9 +1304,9 @@ def find_epsilon_us(df: pd.DataFrame,
             # if eps == 1:
             #     break
 
-            # TODO: if we find analytics_server lot of discoveries (analytics_server lot of small p-values),
+            # TODO: if we find a lot of discoveries (a lot of small p-values),
             #  we can skip epsilons that are close to the current eps (ex. 10 to 9).
-            #  If there's only analytics_server few discoveries,
+            #  If there's only a few discoveries,
             #  we should probe epsilons that are close (10 to 9.9)
 
             # print("top 3", [np.average(lst) for lst in top_3_risk.values()])
@@ -1297,29 +1414,40 @@ if __name__ == '__main__':
     # query_string = "SELECT COUNT(*) FROM adult WHERE age < 40 AND income == '>50K'"
     # query_string = "SELECT race, COUNT(*) FROM adult WHERE education_num >= 14 AND income == '<=50K' GROUP BY race"
 
-    query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
+    # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
     # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
     # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
     # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
-    # query_string = "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
+    query_string = "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
 
     # query_string = "SELECT AVG(capital_loss) FROM adult WHERE hours_per_week > 40 AND workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
 
 
-    # design epsilons to test in analytics_server way that smaller eps are more frequent and largest eps are less
+    # design epsilons to test in a way that smaller eps are more frequent and largest eps are less
     eps_list = list(np.arange(0.001, 0.01, 0.001, dtype=float))
     eps_list += list(np.arange(0.01, 0.1, 0.01, dtype=float))
     eps_list += list(np.arange(0.1, 1, 0.1, dtype=float))
     eps_list += list(np.arange(1, 11, 1, dtype=float))
-    # eps_list += list(np.arange(10, 101, 10, dtype=float))
-    # eps_list = list(np.arange(0.5, 5.1, 0.5, dtype=float))
-
-    # eps_list = [6.0]
-    # print(eps_list)
 
     start_time = time.time()
-    eps = find_epsilon(df, query_string, -1, 100, eps_list, 1, 0.05, test="es")
+    eps = find_epsilon(df, query_string, -1, 100, eps_list, 1, 0.05, test="mw", num_parallel_processes=8)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 
     print(eps)
+
+    # times = []
+    #
+    # for i in range(1, 9):
+    #
+    #     start_time = time.time()
+    #     eps = find_epsilon(df, query_string, -1, 100, eps_list, 1, 0.05, test="mw", num_parallel_processes=i)
+    #     elapsed = time.time() - start_time
+    #     print(f"total time: {elapsed} s")
+    #
+    #     print(eps)
+    #
+    #     times.append(elapsed)
+    #
+    # plt.plot(np.arange(1, 9), times)
+    # plt.savefig("num_processes")

@@ -23,6 +23,7 @@ from sql_metadata import Parser
 from sklearn import preprocessing
 # import multiprocessing as mp
 import pathos.multiprocessing as mp
+from pathos.multiprocessing import ProcessPool
 from collections import defaultdict
 
 
@@ -517,6 +518,8 @@ def compute_original_risks(df, query_string, idx_to_compute, table_name, row_num
             # print(column_values)
             # if column_values not in risk_score_cache.keys():
 
+            start_time = time.time()
+
             if where_pos == -1:
                 cur_query = query_string[:table_name_pos] + f" WHERE {row_num_col} != {i} " + query_string[
                                                                                               table_name_pos:]
@@ -529,6 +532,10 @@ def compute_original_risks(df, query_string, idx_to_compute, table_name, row_num
 
             risk_score = abs(
                 cur_result.sum(numeric_only=True).sum() - original_result.sum(numeric_only=True).sum())
+
+            elapsed = time.time() - start_time
+            # print(f"time to execute one query: {elapsed} s")
+            # break
 
             # risk_score_cache[column_values] = risk_score
             # else:
@@ -612,6 +619,7 @@ def find_epsilon(df: pd.DataFrame,
         # print(query_columns)
         df_copy = df.copy()
         df_copy = df_copy[query_columns]
+        df_copy = df_copy.sample(frac=1, random_state=0).reset_index(drop=True)
 
         metadata = get_metadata(df_copy, table_name)
 
@@ -620,6 +628,7 @@ def find_epsilon(df: pd.DataFrame,
         while row_num_col in df_copy.columns:
             row_num_col = f"row_num_{random.randint(0, 10000)}"
         df_copy[row_num_col] = df_copy.reset_index().index
+        df_copy.set_index(row_num_col)
 
         # original_risks, original_result = compute_original_risks(df, query_string, metadata, dfs_one_off)
 
@@ -660,9 +669,6 @@ def find_epsilon(df: pd.DataFrame,
         for i in range(len(columns_values)):
             cache[columns_values[i]].append(i)
 
-        # elapsed = time.time() - start_time
-        # print(f"time to create cache: {elapsed} s")
-
         inv_cache = {}
         indices = np.arange(len(df_copy))
         indices_to_ignore = []
@@ -676,7 +682,17 @@ def find_epsilon(df: pd.DataFrame,
 
         np.put(indices, indices_to_ignore, [-1] * len(indices_to_ignore))
 
+        print(len(indices), len(indices_to_ignore), len(indices) - len(indices_to_ignore))
+
+        elapsed = time.time() - start_time
+        print(f"time to create cache: {elapsed} s")
+        # exit()
+
+        start_time = time.time()
+
         idx_split = np.array_split(indices, num_parallel_processes)
+
+        # print(idx_split)
 
         # if num_parallel_processes > 0:
 
@@ -686,11 +702,12 @@ def find_epsilon(df: pd.DataFrame,
         #     engine.dispose(close=False)
 
         with mp.Pool(processes=num_parallel_processes) as mp_pool:
+        # mp_pool = ProcessPool(nodes=num_parallel_processes)
 
             args = [(df_copy, query_string, idx_to_compute, table_name, row_num_col, original_result)
                     for idx_to_compute in idx_split]
 
-            for cur_original_risks in mp_pool.starmap(compute_original_risks, args):
+            for cur_original_risks in mp_pool.starmap(compute_original_risks, args): #*np.array(args).T):
                 original_risks += cur_original_risks
 
         # with mp.Manager() as mp_manager:
@@ -712,6 +729,7 @@ def find_epsilon(df: pd.DataFrame,
         #
         #     for i in range(num_parallel_processes):
         #         original_risks += original_risks_dict[i]
+        # exit()
 
         for i in range(len(original_risks)):
             if original_risks[i] is None:
@@ -1401,7 +1419,7 @@ if __name__ == '__main__':
     # csv_path = '../PUMS.csv'
     # df = pd.read_csv(csv_path)#.head(100)
     # print(df.head())
-    df = pd.read_csv("../scalability/adult_100000.csv")
+    df = pd.read_csv("../scalability/adult_1000000.csv")
     # df = pd.read_csv("../adult.csv")
     # df = df[["age", "education", "education.num", "race", "income"]]
     # df.rename(columns={'education.num': 'education_num'}, inplace=True)

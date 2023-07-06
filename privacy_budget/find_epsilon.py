@@ -1,7 +1,10 @@
+import random
+random_state = 0
+random.seed(random_state)
+
 import itertools
 import math
 import numbers
-import random
 import re
 
 import numpy as np
@@ -29,9 +32,6 @@ from pathos.multiprocessing import ProcessPool
 from collections import defaultdict
 from scipy.stats import laplace
 from scipy import spatial
-
-random_state = 0
-random.seed(random_state)
 
 
 def get_metadata(df: pd.DataFrame, name: str):
@@ -127,23 +127,23 @@ def compute_neighboring_results(df, query_string, idx_to_compute, table_name, ro
 
         # start_time = time.time()
 
-        dummy_row = df.iloc[0].copy()
-        for col in df.columns:
-            if col in table_metadata.keys():
-                if table_metadata[col]["type"] == "int" or table_metadata[col]["type"] == "float":
-                    dummy_row[col] = table_metadata[col]["lower"]
-                elif table_metadata[col]["type"] == "string":
-                    dummy_row[col] = None
-            else:
-                dummy_row[col] = len(df) + 1
+        # dummy_row = df.iloc[0].copy()
+        # for col in df.columns:
+        #     if col in table_metadata.keys():
+        #         if table_metadata[col]["type"] == "int" or table_metadata[col]["type"] == "float":
+        #             dummy_row[col] = table_metadata[col]["lower"]
+        #         elif table_metadata[col]["type"] == "string":
+        #             dummy_row[col] = None
+        #     else:
+        #         dummy_row[col] = len(df) + 1
+        #
+        # # print(dummy_row)
+        # df_with_dummy_row = df.append(dummy_row)
 
-        # print(dummy_row)
-        df_with_dummy_row = df.append(dummy_row)
-
-        num_rows = to_sql(df_with_dummy_row, name=table_name, con=conn,
+        num_rows = to_sql(df, name=table_name, con=conn,
                           # index=not any(name is None for name in df.index.names),
                           if_exists="replace")  # load index into db if all levels are named
-        if num_rows != len(df_with_dummy_row):
+        if num_rows != len(df):
             print("error when loading to sqlite")
             return None
 
@@ -490,11 +490,10 @@ def extract_table_names(query):
 def find_epsilon(df: pd.DataFrame,
                  query_string: str,
                  eps_to_test: list,
-                 risk_group_percentile: int = 10,
-                 test_eps_num_runs: int = 1,
-                 q: float = 0.05,
-                 test: str = "mw",
+                 percentile: int = 50,
+                 threshold: float = 0.01,
                  num_parallel_processes: int = 8):
+
     with warnings.catch_warnings():
         warnings.simplefilter(action="ignore")
 
@@ -539,7 +538,7 @@ def find_epsilon(df: pd.DataFrame,
             return None
 
         insert_db_time = time.time() - start_time
-        print(f"time to insert to db: {insert_db_time} s")
+        # print(f"time to insert to db: {insert_db_time} s")
 
         start_time = time.time()
 
@@ -550,7 +549,7 @@ def find_epsilon(df: pd.DataFrame,
         #     print("error: can only have one numerical column in the query result")
         #     return None
 
-        print("original_result", original_aggregates)
+        # print("original_result", original_aggregates)
         # print(original_result)
 
         neighboring_results = []
@@ -580,7 +579,7 @@ def find_epsilon(df: pd.DataFrame,
         # print(len(indices), len(indices_to_ignore), len(indices) - len(indices_to_ignore))
 
         elapsed = time.time() - start_time
-        print(f"time to create cache: {elapsed} s")
+        # print(f"time to create cache: {elapsed} s")
 
         start_time = time.time()
 
@@ -598,14 +597,37 @@ def find_epsilon(df: pd.DataFrame,
             # compute_exact_aggregates_of_neighboring_data(df_copy, table_name, row_num_col, idx_to_compute,
             #                                              private_reader, subquery, query)
 
+        neighboring_aggregates = []
+
         for i in range(len(neighboring_results)):
             if neighboring_results[i] is None:
                 idx_computed = cache[inv_cache[i]][0]
                 neighboring_results[i] = neighboring_results[idx_computed]
 
-        elapsed = time.time() - start_time
-        print(f"time to compute neighboring_results: {elapsed} s")
+            neighboring_result = neighboring_results[i]
+            neighboring_aggregate = [val[1:] for val in neighboring_result.itertuples()]
+            # print("neighboring_aggregates", neighboring_aggregates)
 
+            if len(neighboring_aggregate) != len(original_aggregates):
+                # corner case: group by results missing for one group after removing one record
+                # print("in")
+                missing_group = set(original_aggregates) - set(neighboring_aggregate)
+                # assert len(missing_group) == 1
+                missing_group = missing_group.pop()
+                missing_group_pos = original_aggregates.index(missing_group)
+                missing_group = list(missing_group)
+                for i in range(len(missing_group)):
+                    if isinstance(missing_group[i], numbers.Number):
+                        # print("xxxx")
+                        missing_group[i] = 0
+                neighboring_aggregate.insert(missing_group_pos, tuple(missing_group))
+
+            # print("neighboring_aggregates", neighboring_aggregates)
+
+            neighboring_aggregates.append(neighboring_aggregate)
+
+        elapsed = time.time() - start_time
+        # print(f"time to compute neighboring_results: {elapsed} s")
 
         best_eps = None
 
@@ -616,7 +638,8 @@ def find_epsilon(df: pd.DataFrame,
         test_equal_distribution_time = 0.0
 
         # query_string = query_string.replace(f" {table_name} ", f" {table_name}.{table_name} ")
-        query_string = re.sub(f" FROM {table_name}", f" FROM {table_name}.{table_name}", query_string, flags=re.IGNORECASE)
+        query_string = re.sub(f" FROM {table_name}", f" FROM {table_name}.{table_name}", query_string,
+                              flags=re.IGNORECASE)
 
         for eps in sorted_eps_to_test:
 
@@ -639,181 +662,159 @@ def find_epsilon(df: pd.DataFrame,
             # col_sensitivities = get_query_sensitivities(private_reader, subquery, query)
             # print(col_sensitivities)
 
-            for j in range(test_eps_num_runs):
+            start_time = time.time()
 
-                start_time = time.time()
+            dp_result = execute_rewritten_ast(sqlite_connection, table_name, private_reader, subquery, query)
+            dp_result = private_reader._to_df(dp_result)
+            # print(dp_result)
+            dp_aggregates = [val[1:] for val in dp_result.itertuples()]
 
+            # print("dp_result", dp_result)
+            # print("dp_aggregates", dp_aggregates)
 
-                dp_result = execute_rewritten_ast(sqlite_connection, table_name, private_reader, subquery, query)
-                dp_result = private_reader._to_df(dp_result)
-                # print(dp_result)
-                dp_aggregates = [val[1:] for val in dp_result.itertuples()]
+            PRIs = []
+            for neighboring_aggregate in neighboring_aggregates:
 
-                # print("dp_result", dp_result)
-                print("dp_aggregates", dp_aggregates)
+                PRI = 0
+                for row1, row2 in zip(dp_aggregates, neighboring_aggregate):
+                    for val1, val2 in zip(row1, row2):
+                        if isinstance(val1, numbers.Number) and isinstance(val2, numbers.Number):
+                            PRI += abs(val1 - val2)
 
-                PRIs = []
-                for neighboring_result in neighboring_results:
-                    neighboring_aggregates = [val[1:] for val in neighboring_result.itertuples()]
-                    # print("neighboring_aggregates", neighboring_aggregates)
+                # if eps == 0.1:
+                #     print(neighboring_aggregates, PRI)
 
-                    if len(neighboring_aggregates) != len(original_aggregates):
-                        # corner case: group by results missing for one group after removing one record
-                        # print("in")
-                        missing_group = set(original_aggregates) - set(neighboring_aggregates)
-                        assert len(missing_group) == 1
-                        missing_group = missing_group.pop()
-                        missing_group_pos = original_aggregates.index(missing_group)
-                        missing_group = list(missing_group)
-                        for i in range(len(missing_group)):
-                            if isinstance(missing_group[i], numbers.Number):
-                                # print("xxxx")
-                                missing_group[i] = 0
-                        neighboring_aggregates.insert(missing_group_pos, tuple(missing_group))
+                PRIs.append(PRI)
 
-                    # print("neighboring_aggregates", neighboring_aggregates)
-
-                    PRI = 0
-                    for row1, row2 in zip(dp_aggregates, neighboring_aggregates):
-                        for val1, val2 in zip(row1, row2):
-                            if isinstance(val1, numbers.Number) and isinstance(val2, numbers.Number):
-                                PRI += abs(val1 - val2)
-
-                    # if eps == 0.1:
-                    #     print(neighboring_aggregates, PRI)
-
-                    PRIs.append(PRI)
-
-
-                '''
-                
-                PRIs.sort()
-
-                # l2 normalization
-                # PRIs = preprocessing.normalize([PRIs])[0]
-
-                # min-min normalize
-                # PRIs = preprocessing.minmax_scale(np.array(PRIs).reshape(-1, 1)).reshape(-1)
-
-                # standardize
-                # PRIs = np.array(PRIs)
-                # PRIs = (PRIs - PRIs.mean()) / PRIs.std()
-
-                # print(PRIs)
-                print(pd.DataFrame(PRIs).describe())
-                # print(PRIs)
-
-                # PRIs = np.unique(PRIs)
-
-                p1 = np.percentile(PRIs, 100 - risk_group_percentile)
-                PRI1 = [val for val in PRIs if val >= p1]
-
-                p2 = np.percentile(PRIs, risk_group_percentile)
-                PRI2 = [val for val in PRIs if val <= p2]
-
-                PRI1 = PRIs[:100]
-                PRI2 = PRIs[-100:]
-
-                # random_sample = np.random.choice(PRIs, size=1000, replace=False)
-                PRIs_shuffled = PRIs.copy()
-                random.shuffle(PRIs_shuffled)
-                sample_split = np.array_split(PRIs_shuffled, 10)
-                # print(*sample_split)
-
-                # print(f"{100 - risk_group_percentile} percentile", p1, f"{risk_group_percentile} percentile", p2)
-                print(PRI1)
-                print(PRI2)
-
-                eucl_dist = np.linalg.norm(np.array(PRI2) - np.array(PRI1))
-                print("eucl dist", eucl_dist)
-
-                cos_dist = 1 - spatial.distance.cosine(PRI1, PRI2)
-                print("cos dist", cos_dist)
-
-                emd_dist = stats.wasserstein_distance(PRI1, PRI2)
-                print("emd dist", emd_dist)
-
-                min_dist = spatial.distance.minkowski(PRI1, PRI2)
-                print("min dist", min_dist)
-
-                elapsed = time.time() - start_time
-                # print(f"{j}th compute risk time: {elapsed} s")
-                compute_risk_time += elapsed
-
-                # We perform the test and record the p-value for each run
-                start_time = time.time()
-
-                if test == "mw":
-                    cur_res = stats.mannwhitneyu(PRI1, PRI2, method="asymptotic")
-                    p_value = cur_res[1]
-                elif test == "ks":
-                    cur_res = stats.ks_2samp(PRI1, PRI2)#, method="asymp")  # , method="exact")
-                    p_value = cur_res[1]
-                elif test == "es":
-                    for i1 in range(len(PRI1)):
-                        if PRI1[i1] == 0.0:
-                            PRI1[i1] += 1e-100
-                    cur_res = stats.epps_singleton_2samp(PRI1, PRI2)
-                    p_value = cur_res[1]
-                elif test == "ad":
-                    cur_res = stats.anderson_ksamp(sample_split)
-                    p_value = cur_res[2]
-                elif test == "mood":
-                    cur_res = stats.median_test(PRI1, PRI2)
-                    p_value = cur_res[1]
-                elif test == "kw":
-                    cur_res = stats.kruskal(*sample_split)
-                    p_value = cur_res[1]
-
-                print("res", cur_res)
-                # p_value = cur_res[1]
-                # if test == "ad":
-                #     p_value = cur_res[2]
-                # if p_value < 0.01:
-                #     reject_null = True # early stopping
-                p_values.append(p_value)
-
-                # print(pd.DataFrame(new_risks1).describe())
-                # print(pd.DataFrame(new_risks2).describe())
-                # print(f"p_value: {p_value}")
-
-                elapsed = time.time() - start_time
-                test_equal_distribution_time += elapsed
-
-            # Now we have n p-values for the current epsilon, we use multiple comparisons' technique
-            # to determine if this epsilon is good enough
-            # For now we use false discovery rate
-            # print(p_values)
-            if test_eps_num_runs > 1:
-                if not fdr(p_values, q):  # q = proportion of false positives we will accept
-                    # We want no discovery (fail to reject null) for all n runs
-                    # If we fail to reject the null, then we break the loop.
-                    # The current epsilon is the one we choose
-                    best_eps = eps
-                    break
-            else:
-                if p_values[0] > q:
-                    best_eps = eps
-                    # break
-
-            # TODO: if we find a lot of discoveries (a lot of small p-values),
-            #  we can skip epsilons that are close to the current eps (ex. 10 to 9).
-            #  If there's only a few discoveries,
-            #  we should probe epsilons that are close (10 to 9.9)
-            
             '''
+
+            PRIs.sort()
+
+            # l2 normalization
+            # PRIs = preprocessing.normalize([PRIs])[0]
+
+            # min-min normalize
+            # PRIs = preprocessing.minmax_scale(np.array(PRIs).reshape(-1, 1)).reshape(-1)
+
+            # standardize
+            # PRIs = np.array(PRIs)
+            # PRIs = (PRIs - PRIs.mean()) / PRIs.std()
+
+            # print(PRIs)
             print(pd.DataFrame(PRIs).describe())
+            # print(PRIs)
 
-            min = np.min(PRIs)
+            # PRIs = np.unique(PRIs)
+
+            p1 = np.percentile(PRIs, 100 - risk_group_percentile)
+            PRI1 = [val for val in PRIs if val >= p1]
+
+            p2 = np.percentile(PRIs, risk_group_percentile)
+            PRI2 = [val for val in PRIs if val <= p2]
+
+            PRI1 = PRIs[:100]
+            PRI2 = PRIs[-100:]
+
+            # random_sample = np.random.choice(PRIs, size=1000, replace=False)
+            PRIs_shuffled = PRIs.copy()
+            random.shuffle(PRIs_shuffled)
+            sample_split = np.array_split(PRIs_shuffled, 10)
+            # print(*sample_split)
+
+            # print(f"{100 - risk_group_percentile} percentile", p1, f"{risk_group_percentile} percentile", p2)
+            print(PRI1)
+            print(PRI2)
+
+            eucl_dist = np.linalg.norm(np.array(PRI2) - np.array(PRI1))
+            print("eucl dist", eucl_dist)
+
+            cos_dist = 1 - spatial.distance.cosine(PRI1, PRI2)
+            print("cos dist", cos_dist)
+
+            emd_dist = stats.wasserstein_distance(PRI1, PRI2)
+            print("emd dist", emd_dist)
+
+            min_dist = spatial.distance.minkowski(PRI1, PRI2)
+            print("min dist", min_dist)
+
+            elapsed = time.time() - start_time
+            # print(f"{j}th compute risk time: {elapsed} s")
+            compute_risk_time += elapsed
+
+            # We perform the test and record the p-value for each run
+            start_time = time.time()
+
+            if test == "mw":
+                cur_res = stats.mannwhitneyu(PRI1, PRI2, method="asymptotic")
+                p_value = cur_res[1]
+            elif test == "ks":
+                cur_res = stats.ks_2samp(PRI1, PRI2)#, method="asymp")  # , method="exact")
+                p_value = cur_res[1]
+            elif test == "es":
+                for i1 in range(len(PRI1)):
+                    if PRI1[i1] == 0.0:
+                        PRI1[i1] += 1e-100
+                cur_res = stats.epps_singleton_2samp(PRI1, PRI2)
+                p_value = cur_res[1]
+            elif test == "ad":
+                cur_res = stats.anderson_ksamp(sample_split)
+                p_value = cur_res[2]
+            elif test == "mood":
+                cur_res = stats.median_test(PRI1, PRI2)
+                p_value = cur_res[1]
+            elif test == "kw":
+                cur_res = stats.kruskal(*sample_split)
+                p_value = cur_res[1]
+
+            print("res", cur_res)
+            # p_value = cur_res[1]
+            # if test == "ad":
+            #     p_value = cur_res[2]
+            # if p_value < 0.01:
+            #     reject_null = True # early stopping
+            p_values.append(p_value)
+
+            # print(pd.DataFrame(new_risks1).describe())
+            # print(pd.DataFrame(new_risks2).describe())
+            # print(f"p_value: {p_value}")
+
+            elapsed = time.time() - start_time
+            test_equal_distribution_time += elapsed
+
+        # Now we have n p-values for the current epsilon, we use multiple comparisons' technique
+        # to determine if this epsilon is good enough
+        # For now we use false discovery rate
+        # print(p_values)
+        if test_eps_num_runs > 1:
+            if not fdr(p_values, q):  # q = proportion of false positives we will accept
+                # We want no discovery (fail to reject null) for all n runs
+                # If we fail to reject the null, then we break the loop.
+                # The current epsilon is the one we choose
+                best_eps = eps
+                break
+        else:
+            if p_values[0] > q:
+                best_eps = eps
+                # break
+
+        # TODO: if we find a lot of discoveries (a lot of small p-values),
+        #  we can skip epsilons that are close to the current eps (ex. 10 to 9).
+        #  If there's only a few discoveries,
+        #  we should probe epsilons that are close (10 to 9.9)
+
+        '''
+            # print(pd.DataFrame(PRIs).describe())
+
+            # min = np.min(PRIs)
             max = np.max(PRIs)
-            median = np.median(PRIs)
-            p25 = np.percentile(PRIs, 25)
+            # median = np.median(PRIs)
+            denom = np.percentile(PRIs, percentile)
 
-            print("max / min", max / min)
-            print("max / 25p", max / p25)
-            print("max / med", max / median)
+            # print("max / min", max / min)
+            # print("max / denom", max / denom)
+            # print("max / med", max / median)
 
-            if max / median < 1.001:
+            if max / denom < 1.0 + threshold:
                 best_eps = eps
                 break
 
@@ -825,7 +826,7 @@ def find_epsilon(df: pd.DataFrame,
         if best_eps is None:
             return None
 
-        return best_eps, dp_result  # also return the dp result computed
+        return best_eps, dp_result, insert_db_time  # also return the dp result computed
 
 
 if __name__ == '__main__':
@@ -866,7 +867,7 @@ if __name__ == '__main__':
     # eps_list = [0.01]
 
     start_time = time.time()
-    eps = find_epsilon(df, query_string, eps_list, 10, 1, 0.05, test="mw", num_parallel_processes=2)
+    eps = find_epsilon(df, query_string, eps_list, num_parallel_processes=2)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

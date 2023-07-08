@@ -833,7 +833,7 @@ if __name__ == '__main__':
     # csv_path = '../adult.csv'
     # df = pd.read_csv(csv_path)#.head(100)
     # print(df.head())
-    df = pd.read_csv("../scalability/adult_1000.csv")
+    df = pd.read_csv("../scalability/adult_100000.csv")
     # df = pd.read_csv("../adult.csv")
     # df = df[["age", "education", "education.num", "race", "income"]]
     # df.rename(columns={'education.num': 'education_num'}, inplace=True)
@@ -847,10 +847,10 @@ if __name__ == '__main__':
     # query_string = "SELECT race, COUNT(*) FROM adult WHERE education_num >= 14 AND income == '<=50K' GROUP BY race"
 
     # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
-    query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
+    # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
     # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
     # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
-    # query_string = "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
+    query_string = "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
 
     # query_string = "SELECT sex, AVG(age) FROM adult GROUP BY sex"
 
@@ -860,14 +860,14 @@ if __name__ == '__main__':
     # workclass == 'Local-gov' or workclass == 'State-gov'"
 
     # design epsilons to test in a way that smaller eps are more frequent and largest eps are less
-    # eps_list = list(np.arange(0.001, 0.01, 0.001, dtype=float))
+    eps_list = list(np.arange(0.001, 0.01, 0.001, dtype=float))
     eps_list = list(np.arange(0.01, 0.1, 0.01, dtype=float))
     eps_list += list(np.arange(0.1, 1, 0.1, dtype=float))
     eps_list += list(np.arange(1, 11, 1, dtype=float))
     # eps_list = [0.01]
 
     start_time = time.time()
-    eps = find_epsilon(df, query_string, eps_list, num_parallel_processes=2)
+    eps = find_epsilon(df, query_string, eps_list, num_parallel_processes=8, percentile=0)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

@@ -861,9 +861,11 @@ if __name__ == '__main__':
 
     # design epsilons to test in a way that smaller eps are more frequent and largest eps are less
     eps_list = list(np.arange(0.001, 0.01, 0.001, dtype=float))
-    eps_list = list(np.arange(0.01, 0.1, 0.01, dtype=float))
+    eps_list += list(np.arange(0.01, 0.1, 0.01, dtype=float))
     eps_list += list(np.arange(0.1, 1, 0.1, dtype=float))
     eps_list += list(np.arange(1, 11, 1, dtype=float))
+    print(len(eps_list))
+    # exit()
     # eps_list = [0.01]
 
     start_time = time.time()

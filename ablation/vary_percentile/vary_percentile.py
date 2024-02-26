@@ -5,7 +5,7 @@ from privacy_budget.find_epsilon import *
 if __name__ == '__main__':
     df = pd.read_csv("../../scalability/adult_100000.csv")
 
-    num_runs_experiment = 10
+    num_runs_experiment = 50
 
     eps_list = list(np.arange(0.001, 0.01, 0.001, dtype=float))
     eps_list += list(np.arange(0.01, 0.1, 0.01, dtype=float))
@@ -22,7 +22,7 @@ if __name__ == '__main__':
                "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
                ]
 
-    percentiles = [0, 25, 50]
+    percentiles = [5, 75, 95]
 
     for percentile in percentiles:
 
@@ -40,10 +40,15 @@ if __name__ == '__main__':
 
             for query_string in queries:
 
+                # if percentile == 0 and query_string == "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'":
+                #     times.append(0)
+                #     res_eps.append(None)
+                #     continue
+
                 print(query_string)
 
                 start_time = time.time()
-                res = find_epsilon(df, query_string, eps_list, percentile=percentile, num_parallel_processes=6)
+                res = find_epsilon(df, query_string, eps_list, percentile=percentile, num_parallel_processes=8)
                 elapsed = time.time() - start_time
                 print(f"total time: {elapsed} s")
                 times.append(elapsed)

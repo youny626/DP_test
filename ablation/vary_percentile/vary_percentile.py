@@ -48,7 +48,7 @@ if __name__ == '__main__':
                 print(query_string)
 
                 start_time = time.time()
-                res = find_epsilon(df, query_string, eps_list, percentile=percentile, num_parallel_processes=8)
+                res = find_epsilon(df, query_string, eps_list, percentile=percentile, num_parallel_processes=16)
                 elapsed = time.time() - start_time
                 print(f"total time: {elapsed} s")
                 times.append(elapsed)

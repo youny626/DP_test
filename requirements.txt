@@ -80,7 +80,7 @@ scipy
 seaborn
 Send2Trash
 six
-sklearn
+scikit-learn
 smartnoise-sql
 snakeviz
 soupsieve

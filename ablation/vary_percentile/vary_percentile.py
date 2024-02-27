@@ -3,7 +3,7 @@ import numpy as np
 from privacy_budget.find_epsilon import *
 
 if __name__ == '__main__':
-    df = pd.read_csv("/home/zhiru/DP_test/scalability/adult_100000.csv")
+    df = pd.read_csv("../../scalability/adult_100000.csv")
 
     num_runs_experiment = 50
 
@@ -22,11 +22,11 @@ if __name__ == '__main__':
                "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
                ]
 
-    percentiles = [5, 75, 95]
+    percentages = [5, 25, 50, 75, 95]
 
-    for percentile in percentiles:
+    for percentage in percentages:
 
-        print("percentile:", percentile)
+        print("percentage:", percentage)
 
         res_eps_list = []
         time_list = []
@@ -40,7 +40,7 @@ if __name__ == '__main__':
 
             for query_string in queries:
 
-                # if percentile == 0 and query_string == "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'":
+                # if percentage == 0 and query_string == "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'":
                 #     times.append(0)
                 #     res_eps.append(None)
                 #     continue
@@ -48,7 +48,7 @@ if __name__ == '__main__':
                 print(query_string)
 
                 start_time = time.time()
-                res = find_epsilon(df, query_string, eps_list, percentile=percentile, num_parallel_processes=16)
+                res = find_epsilon(df, query_string, eps_list, percentage=percentage, num_parallel_processes=8)
                 elapsed = time.time() - start_time
                 print(f"total time: {elapsed} s")
                 times.append(elapsed)
@@ -64,10 +64,10 @@ if __name__ == '__main__':
             res_eps_list.append(res_eps)
             time_list.append(times)
 
-        with open(f"percentile_{percentile}_eps.log", "w") as f:
+        with open(f"percentile_{percentage}_eps.log", "w") as f:
             for eps in res_eps_list:
                 f.write(str(eps)[1:-1] + "\n")
 
-        with open(f"percentile_{percentile}_time.log", "w") as f:
+        with open(f"percentile_{percentage}_time.log", "w") as f:
             for times in time_list:
                 f.write(str(times)[1:-1] + "\n")

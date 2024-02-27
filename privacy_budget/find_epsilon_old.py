@@ -798,7 +798,7 @@ def find_epsilon(df: pd.DataFrame,
         # print(sorted_original_risks)
         sorted_original_risks_idx = np.argsort(original_risks)
         # idx1 = sorted_original_risks.index(
-        #     np.percentile(sorted_original_risks, risk_group_percentile, interpolation='nearest'))
+        #     np.percentage(sorted_original_risks, risk_group_percentile, interpolation='nearest'))
 
         if risk_group_percentile > 0:
 
@@ -810,7 +810,7 @@ def find_epsilon(df: pd.DataFrame,
             idx1 = max(loc for loc, val in enumerate(sorted_original_risks) if abs(val - val1) <= 10e-8)
 
             # idx2 = sorted_original_risks.index(
-            #     np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest'))
+            #     np.percentage(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest'))
             val2 = np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest')
             # first index of val2
             idx2 = sorted_original_risks.index(val2)
@@ -1084,7 +1084,7 @@ def find_epsilon_us(df: pd.DataFrame,
         # print(sorted_original_risks)
         sorted_original_risks_idx = np.argsort(original_risks)
         # idx1 = sorted_original_risks.index(
-        #     np.percentile(sorted_original_risks, risk_group_percentile, interpolation='nearest'))
+        #     np.percentage(sorted_original_risks, risk_group_percentile, interpolation='nearest'))
 
         if risk_group_percentile > 50:
             risk_group_percentile = 100 - risk_group_percentile
@@ -1094,7 +1094,7 @@ def find_epsilon_us(df: pd.DataFrame,
         idx1 = max(loc for loc, val in enumerate(sorted_original_risks) if abs(val - val1) <= 10e-8)
 
         # idx2 = sorted_original_risks.index(
-        #     np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest'))
+        #     np.percentage(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest'))
         val2 = np.percentile(sorted_original_risks, 100 - risk_group_percentile, interpolation='nearest')
         # first index of val2
         idx2 = sorted_original_risks.index(val2)

@@ -490,7 +490,7 @@ def extract_table_names(query):
 def find_epsilon(df: pd.DataFrame,
                  query_string: str,
                  eps_to_test: list,
-                 percentile: int = 50,
+                 percentage: int = 50,
                  threshold: float = 0.01,
                  num_parallel_processes: int = 8):
 
@@ -706,10 +706,10 @@ def find_epsilon(df: pd.DataFrame,
 
             # PRIs = np.unique(PRIs)
 
-            p1 = np.percentile(PRIs, 100 - risk_group_percentile)
+            p1 = np.percentage(PRIs, 100 - risk_group_percentile)
             PRI1 = [val for val in PRIs if val >= p1]
 
-            p2 = np.percentile(PRIs, risk_group_percentile)
+            p2 = np.percentage(PRIs, risk_group_percentile)
             PRI2 = [val for val in PRIs if val <= p2]
 
             PRI1 = PRIs[:100]
@@ -721,7 +721,7 @@ def find_epsilon(df: pd.DataFrame,
             sample_split = np.array_split(PRIs_shuffled, 10)
             # print(*sample_split)
 
-            # print(f"{100 - risk_group_percentile} percentile", p1, f"{risk_group_percentile} percentile", p2)
+            # print(f"{100 - risk_group_percentile} percentage", p1, f"{risk_group_percentile} percentage", p2)
             print(PRI1)
             print(PRI2)
 
@@ -805,16 +805,17 @@ def find_epsilon(df: pd.DataFrame,
         '''
             # print(pd.DataFrame(PRIs).describe())
 
-            # min = np.min(PRIs)
+            min = np.min(PRIs)
             max = np.max(PRIs)
             # median = np.median(PRIs)
-            denom = np.percentile(PRIs, percentile)
+            # denom = np.percentage(PRIs, percentage)
 
             # print("max / min", max / min)
             # print("max / denom", max / denom)
             # print("max / med", max / median)
 
-            if max / denom < 1.0 + threshold:
+            diff = 1e-08
+            if min / max >= (1.0 - percentage / 100 - diff):
                 best_eps = eps
                 break
 
@@ -848,9 +849,9 @@ if __name__ == '__main__':
 
     # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
     # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
-    # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
+    query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
     # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
-    query_string = "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
+    # query_string = "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
 
     # query_string = "SELECT sex, AVG(age) FROM adult GROUP BY sex"
 
@@ -869,7 +870,7 @@ if __name__ == '__main__':
     # eps_list = [0.01]
 
     start_time = time.time()
-    eps = find_epsilon(df, query_string, eps_list, num_parallel_processes=8, percentile=0)
+    eps = find_epsilon(df, query_string, eps_list, num_parallel_processes=8, percentage=5)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

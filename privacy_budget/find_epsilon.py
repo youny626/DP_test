@@ -17,14 +17,11 @@ import snsql
 from snsql import Privacy
 from snsql._ast.expressions.date import parse_datetime
 from snsql._ast.expressions import sql as ast
-from snsql.sql.reader.base import SortKey
 from snsql._ast.ast import Top
 from sqlalchemy import create_engine
 from pandas.io.sql import to_sql, read_sql
-import matplotlib.pyplot as plt
 from statsmodels.stats.multitest import fdrcorrection
 from sql_metadata import Parser
-from sklearn import preprocessing
 import multiprocessing as mp
 # from multiprocessing.pool import Pool
 # import pathos.multiprocessing as mp
@@ -32,7 +29,9 @@ from pathos.multiprocessing import ProcessPool
 from collections import defaultdict
 from scipy.stats import laplace
 from scipy import spatial
-
+from copy import deepcopy
+import string
+from snsql.sql.reader.base import SortKeyExpressions
 
 def get_metadata(df: pd.DataFrame, name: str):
     metadata = {}
@@ -195,6 +194,15 @@ def compute_neighboring_results(df, query_string, idx_to_compute, table_name, ro
 def execute_rewritten_ast(sqlite_connection, table_name,
                           private_reader, subquery, query, *ignore, accuracy: bool = False, pre_aggregated=None,
                           postprocess=True):
+    
+    _orig_query = query
+
+    agg_names = []
+    for col in _orig_query.select.namedExpressions:
+        if isinstance(col.expression, ast.AggFunction):
+            agg_names.append(col.expression.name)
+        else:
+            agg_names.append(None)
 
     private_reader._options.censor_dims = False
     private_reader._options.clamp_counts = True
@@ -231,8 +239,7 @@ def execute_rewritten_ast(sqlite_connection, table_name,
 
     _accuracy = None
     if accuracy:
-        raise NotImplementedError(
-            "Simple accuracy has been removed.  Please see documentation for information on estimating accuracy.")
+        raise NotImplementedError("Simple accuracy has been removed.  Please see documentation for information on estimating accuracy.")
 
     syms = subquery._select_symbols
     source_col_names = [s.name for s in syms]
@@ -273,8 +280,6 @@ def execute_rewritten_ast(sqlite_connection, table_name,
     else:
         raise ValueError("Unexpected type for exact_aggregates")
 
-    # print(list(out))
-
     # censor infrequent dimensions
     if private_reader._options.censor_dims:
         if kc_pos is None:
@@ -282,24 +287,15 @@ def execute_rewritten_ast(sqlite_connection, table_name,
         else:
             thresh_mech = mechs[kc_pos]
             private_reader.tau = thresh_mech.threshold
-            # print("xxx")
         if hasattr(out, "filter"):
             # it's an RDD
             tau = private_reader.tau
             out = out.filter(lambda row: row[kc_pos] > tau)
-            # print("yyy")
         else:
-            # print(kc_pos)
-            # print(private_reader.tau)
             out = filter(lambda row: row[kc_pos] > private_reader.tau, out)
-            # print("zzz")
-
-    # print(list(out))
 
     if not postprocess:
         return out
-
-    # print(list(out))
 
     def process_clamp_counts(row_in):
         # clamp counts to be non-negative
@@ -310,7 +306,6 @@ def execute_rewritten_ast(sqlite_connection, table_name,
         return row
 
     clamp_counts = private_reader._options.clamp_counts
-    # print(clamp_counts)
     if clamp_counts:
         if hasattr(out, "rdd"):
             # it's a dataframe
@@ -325,10 +320,12 @@ def execute_rewritten_ast(sqlite_connection, table_name,
     out_syms = query._select_symbols
     out_types = [s.expression.type() for s in out_syms]
     out_col_names = [s.name for s in out_syms]
+    bind_prefix = ''.join(np.random.choice(list(string.ascii_lowercase), 5))
+    binding_col_names = [name if name != "???" else f"col_{bind_prefix}_{i}" for i, name in enumerate(out_col_names)]
 
     def convert(val, type):
         if val is None:
-            return None  # all columns are nullable
+            return None # all columns are nullable
         if type == "string" or type == "unknown":
             return str(val)
         elif type == "int":
@@ -347,14 +344,24 @@ def execute_rewritten_ast(sqlite_connection, table_name,
             return v
         else:
             raise ValueError("Can't convert type " + type)
-
+    
     alphas = [alpha for alpha in private_reader.privacy.alphas]
 
     def process_out_row(row):
         bindings = dict((name.lower(), val) for name, val in zip(source_col_names, row))
         out_row = [c.expression.evaluate(bindings) for c in query.select.namedExpressions]
+        # fix up case where variance is negative
+        out_row_fixed = []
+        for val, agg in zip(out_row, agg_names):
+            if agg == 'VAR' and val < 0:
+                out_row_fixed.append(0.0)
+            elif agg == 'STDDEV' and np.isnan(val):
+                out_row_fixed.append(0.0)
+            else:
+                out_row_fixed.append(val)
+        out_row = out_row_fixed
         try:
-            out_row = [convert(val, type) for val, type in zip(out_row, out_types)]
+            out_row =[convert(val, type) for val, type in zip(out_row, out_types)]
         except Exception as e:
             raise ValueError(
                 f"Error converting output row: {e}\n"
@@ -375,12 +382,15 @@ def execute_rewritten_ast(sqlite_connection, table_name,
         out = map(process_out_row, out)
 
     def filter_aggregate(row, condition):
-        bindings = dict((name.lower(), val) for name, val in zip(out_col_names, row[0]))
+        bindings = dict((name.lower(), val) for name, val in zip(binding_col_names, row[0]))
         keep = condition.evaluate(bindings)
         return keep
 
     if query.having is not None:
-        condition = query.having.condition
+        condition = deepcopy(query.having.condition)
+        for i, ne in enumerate(_orig_query.select.namedExpressions):
+            source_col = binding_col_names[i]
+            condition = condition.replaced(ne.expression, ast.Column(source_col), lock=True)
         if hasattr(out, "filter"):
             # it's an RDD
             out = out.filter(lambda row: filter_aggregate(row, condition))
@@ -389,30 +399,24 @@ def execute_rewritten_ast(sqlite_connection, table_name,
 
     # sort it if necessary
     if query.order is not None:
-        sort_fields = []
+        sort_expressions = []
         for si in query.order.sortItems:
-            if type(si.expression) is not ast.Column:
-                raise ValueError("We only know how to sort by column names right now")
-            colname = si.expression.name.lower()
-            if colname not in out_col_names:
-                raise ValueError(
-                    "Can't sort by {0}, because it's not in output columns: {1}".format(
-                        colname, out_col_names
-                    )
-                )
-            colidx = out_col_names.index(colname)
             desc = False
             if si.order is not None and si.order.lower() == "desc":
                 desc = True
-            if desc and not (out_types[colidx] in ["int", "float", "boolean", "datetime"]):
-                raise ValueError("We don't know how to sort descending by " + out_types[colidx])
-            sf = (desc, colidx)
-            sort_fields.append(sf)
+            if type(si.expression) is ast.Column and si.expression.name.lower() in out_col_names:
+                sort_expressions.append((desc, si.expression))
+            else:
+                expr = deepcopy(si.expression)
+                for i, ne in enumerate(_orig_query.select.namedExpressions):
+                    source_col = binding_col_names[i]
+                    expr = expr.replaced(ne.expression, ast.Column(source_col), lock=True)
+                sort_expressions.append((desc, expr))
 
         def sort_func(row):
             # use index 0, since index 1 is accuracy
-            return SortKey(row[0], sort_fields)
-
+            return SortKeyExpressions(row[0], sort_expressions, binding_col_names)
+            
         if hasattr(out, "sortBy"):
             out = out.sortBy(sort_func)
         else:
@@ -436,10 +440,10 @@ def execute_rewritten_ast(sqlite_connection, table_name,
         else:
             out = itertools.islice(out, limit_rows)
 
+
     # drop empty accuracy if no accuracy requested
     def drop_accuracy(row):
         return row[0]
-
     if accuracy == False:
         if hasattr(out, "rdd"):
             # it's a dataframe
@@ -449,8 +453,6 @@ def execute_rewritten_ast(sqlite_connection, table_name,
             out = out.map(drop_accuracy)
         else:
             out = map(drop_accuracy, out)
-
-    # print(list(out))
 
     # increment odometer
     for mech in mechs:
@@ -470,9 +472,7 @@ def execute_rewritten_ast(sqlite_connection, table_name,
     else:
         row0 = [out_col_names]
         if accuracy == True:
-            row0 = [[out_col_names,
-                     [[col_name + '_' + str(1 - alpha).replace('0.', '') for col_name in out_col_names] for alpha in
-                      private_reader.privacy.alphas]]]
+            row0 = [[out_col_names, [[col_name+'_' + str(1-alpha).replace('0.', '') for col_name in out_col_names] for alpha in self.privacy.alphas ]]]
         out_rows = row0 + list(out)
         return out_rows
 
@@ -490,8 +490,7 @@ def extract_table_names(query):
 def find_epsilon(df: pd.DataFrame,
                  query_string: str,
                  eps_to_test: list,
-                 percentage: int = 50,
-                 threshold: float = 0.01,
+                 percentage: int = 5,
                  num_parallel_processes: int = 8):
 
     with warnings.catch_warnings():
@@ -834,7 +833,7 @@ if __name__ == '__main__':
     # csv_path = '../adult.csv'
     # df = pd.read_csv(csv_path)#.head(100)
     # print(df.head())
-    df = pd.read_csv("../scalability/adult_100000.csv")
+    df = pd.read_csv("/Users/zhiruzhu/Desktop/dp_paper/DP_test/scalability/adult_10000.csv")
     # df = pd.read_csv("../adult.csv")
     # df = df[["age", "education", "education.num", "race", "income"]]
     # df.rename(columns={'education.num': 'education_num'}, inplace=True)

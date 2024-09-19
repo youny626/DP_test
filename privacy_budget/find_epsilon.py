@@ -204,8 +204,13 @@ def execute_rewritten_ast(sqlite_connection, table_name,
         else:
             agg_names.append(None)
 
-    private_reader._options.censor_dims = False
-    private_reader._options.clamp_counts = True
+    private_reader._options.row_privacy = query.row_privacy
+    private_reader._options.censor_dims = False #query.censor_dims
+    private_reader._options.reservoir_sample = query.sample_max_ids
+    private_reader._options.clamp_counts = True #query.clamp_counts
+    private_reader._options.use_dpsu = query.use_dpsu
+    private_reader._options.clamp_columns = query.clamp_columns
+    private_reader._refresh_options()
 
     # if isinstance(query, str):
     #     raise ValueError("Please pass AST to _execute_ast.")

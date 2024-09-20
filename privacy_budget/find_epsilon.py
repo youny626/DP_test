@@ -501,7 +501,7 @@ def find_epsilon(df: pd.DataFrame,
                  eps_to_test: list,
                  percentage: int = 5,
                  num_parallel_processes: int = 8,
-                 delta: float = 0):
+                 gaussian: bool = False):
 
     with warnings.catch_warnings():
         warnings.simplefilter(action="ignore")
@@ -643,9 +643,6 @@ def find_epsilon(df: pd.DataFrame,
         # We start from the largest epsilon to the smallest
         sorted_eps_to_test = np.sort(eps_to_test)[::-1]
 
-        compute_risk_time = 0.0
-        test_equal_distribution_time = 0.0
-
         # query_string = query_string.replace(f" {table_name} ", f" {table_name}.{table_name} ")
         query_string = re.sub(f" FROM {table_name}", f" FROM {table_name}.{table_name}", query_string,
                               flags=re.IGNORECASE)
@@ -654,10 +651,9 @@ def find_epsilon(df: pd.DataFrame,
 
             print(f"epsilon = {eps}")
 
-            p_values = []
-
-            privacy = Privacy(epsilon=eps)
-            if delta > 0:
+            privacy = Privacy(epsilon=eps, delta=0)
+            if gaussian:
+                delta = 1 / pow(num_rows, 2)
                 privacy = Privacy(epsilon=eps, delta=delta)
                 privacy.mechanisms.map[Stat.count] = Mechanism.gaussian
                 privacy.mechanisms.map[Stat.sum_int] = Mechanism.gaussian
@@ -696,13 +692,13 @@ def find_epsilon(df: pd.DataFrame,
                 for row1, row2 in zip(dp_aggregates, neighboring_aggregate):
                     for val1, val2 in zip(row1, row2):
                         if isinstance(val1, numbers.Number) and isinstance(val2, numbers.Number):
-                            if delta > 0:
+                            if gaussian:
                                 # gaussian
                                 PRI += pow(val1 - val2, 2)
                             else:
                                 # laplace
                                 PRI += abs(val1 - val2)
-                if delta > 0:
+                if gaussian:
                     PRI = math.sqrt(PRI)
 
                 PRIs.append(PRI) 
@@ -718,8 +714,8 @@ def find_epsilon(df: pd.DataFrame,
             # print("max / denom", max / denom)
             # print("max / med", max / median)
 
-            diff = 1e-08
-            if min / max >= (1.0 - percentage / 100 - diff):
+            diff = 10e-10
+            if min / max >= (1.0 - percentage / 100) - diff:
                 best_eps = eps
                 break
 
@@ -775,7 +771,7 @@ if __name__ == '__main__':
     # eps_list = [0.01]
 
     start_time = time.time()
-    eps = find_epsilon(df, query_string, eps_list, num_parallel_processes=8, percentage=5, delta=10e-6)
+    eps = find_epsilon(df, query_string, eps_list, num_parallel_processes=8, percentage=5, gaussian=True)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

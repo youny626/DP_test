@@ -32,6 +32,8 @@ from scipy import spatial
 from copy import deepcopy
 import string
 from snsql.sql.reader.base import SortKeyExpressions
+from snsql.sql.privacy import Privacy, Stat
+from snsql.sql._mechanisms.base import Mechanism
 
 def get_metadata(df: pd.DataFrame, name: str):
     metadata = {}
@@ -257,6 +259,8 @@ def execute_rewritten_ast(sqlite_connection, table_name,
     check_sens = [m for m in mechs if m]
     if any([m.sensitivity is np.inf for m in check_sens]):
         raise ValueError(f"Attempting to query an unbounded column")
+    
+    # print("mechs:", mechs)
 
     kc_pos = private_reader._get_keycount_position(subquery)
 
@@ -496,7 +500,8 @@ def find_epsilon(df: pd.DataFrame,
                  query_string: str,
                  eps_to_test: list,
                  percentage: int = 5,
-                 num_parallel_processes: int = 8):
+                 num_parallel_processes: int = 8,
+                 delta: float = 0):
 
     with warnings.catch_warnings():
         warnings.simplefilter(action="ignore")
@@ -652,6 +657,14 @@ def find_epsilon(df: pd.DataFrame,
             p_values = []
 
             privacy = Privacy(epsilon=eps)
+            if delta > 0:
+                privacy = Privacy(epsilon=eps, delta=delta)
+                privacy.mechanisms.map[Stat.count] = Mechanism.gaussian
+                privacy.mechanisms.map[Stat.sum_int] = Mechanism.gaussian
+                privacy.mechanisms.map[Stat.sum_large_int] = Mechanism.gaussian
+                privacy.mechanisms.map[Stat.sum_float] = Mechanism.gaussian
+                privacy.mechanisms.map[Stat.threshold] = Mechanism.gaussian
+
             private_reader = snsql.from_df(df_copy, metadata=metadata, privacy=privacy)
             # private_reader._options.censor_dims = False
             # private_reader.rewriter.options.censor_dims = False
@@ -853,9 +866,10 @@ if __name__ == '__main__':
 
     # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
     # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
-    query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
+    # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
     # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
     # query_string = "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
+    query_string = "SELECT SUM(capital_gain) FROM adult"
 
     # query_string = "SELECT sex, AVG(age) FROM adult GROUP BY sex"
 
@@ -874,7 +888,7 @@ if __name__ == '__main__':
     # eps_list = [0.01]
 
     start_time = time.time()
-    eps = find_epsilon(df, query_string, eps_list, num_parallel_processes=8, percentage=5)
+    eps = find_epsilon(df, query_string, eps_list, num_parallel_processes=8, percentage=5, delta=0)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

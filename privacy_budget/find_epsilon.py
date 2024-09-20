@@ -696,130 +696,17 @@ def find_epsilon(df: pd.DataFrame,
                 for row1, row2 in zip(dp_aggregates, neighboring_aggregate):
                     for val1, val2 in zip(row1, row2):
                         if isinstance(val1, numbers.Number) and isinstance(val2, numbers.Number):
-                            PRI += abs(val1 - val2)
+                            if delta > 0:
+                                # gaussian
+                                PRI += pow(val1 - val2, 2)
+                            else:
+                                # laplace
+                                PRI += abs(val1 - val2)
+                if delta > 0:
+                    PRI = math.sqrt(PRI)
 
-                # if eps == 0.1:
-                #     print(neighboring_aggregates, PRI)
+                PRIs.append(PRI) 
 
-                PRIs.append(PRI)
-
-            '''
-
-            PRIs.sort()
-
-            # l2 normalization
-            # PRIs = preprocessing.normalize([PRIs])[0]
-
-            # min-min normalize
-            # PRIs = preprocessing.minmax_scale(np.array(PRIs).reshape(-1, 1)).reshape(-1)
-
-            # standardize
-            # PRIs = np.array(PRIs)
-            # PRIs = (PRIs - PRIs.mean()) / PRIs.std()
-
-            # print(PRIs)
-            print(pd.DataFrame(PRIs).describe())
-            # print(PRIs)
-
-            # PRIs = np.unique(PRIs)
-
-            p1 = np.percentage(PRIs, 100 - risk_group_percentile)
-            PRI1 = [val for val in PRIs if val >= p1]
-
-            p2 = np.percentage(PRIs, risk_group_percentile)
-            PRI2 = [val for val in PRIs if val <= p2]
-
-            PRI1 = PRIs[:100]
-            PRI2 = PRIs[-100:]
-
-            # random_sample = np.random.choice(PRIs, size=1000, replace=False)
-            PRIs_shuffled = PRIs.copy()
-            random.shuffle(PRIs_shuffled)
-            sample_split = np.array_split(PRIs_shuffled, 10)
-            # print(*sample_split)
-
-            # print(f"{100 - risk_group_percentile} percentage", p1, f"{risk_group_percentile} percentage", p2)
-            print(PRI1)
-            print(PRI2)
-
-            eucl_dist = np.linalg.norm(np.array(PRI2) - np.array(PRI1))
-            print("eucl dist", eucl_dist)
-
-            cos_dist = 1 - spatial.distance.cosine(PRI1, PRI2)
-            print("cos dist", cos_dist)
-
-            emd_dist = stats.wasserstein_distance(PRI1, PRI2)
-            print("emd dist", emd_dist)
-
-            min_dist = spatial.distance.minkowski(PRI1, PRI2)
-            print("min dist", min_dist)
-
-            elapsed = time.time() - start_time
-            # print(f"{j}th compute risk time: {elapsed} s")
-            compute_risk_time += elapsed
-
-            # We perform the test and record the p-value for each run
-            start_time = time.time()
-
-            if test == "mw":
-                cur_res = stats.mannwhitneyu(PRI1, PRI2, method="asymptotic")
-                p_value = cur_res[1]
-            elif test == "ks":
-                cur_res = stats.ks_2samp(PRI1, PRI2)#, method="asymp")  # , method="exact")
-                p_value = cur_res[1]
-            elif test == "es":
-                for i1 in range(len(PRI1)):
-                    if PRI1[i1] == 0.0:
-                        PRI1[i1] += 1e-100
-                cur_res = stats.epps_singleton_2samp(PRI1, PRI2)
-                p_value = cur_res[1]
-            elif test == "ad":
-                cur_res = stats.anderson_ksamp(sample_split)
-                p_value = cur_res[2]
-            elif test == "mood":
-                cur_res = stats.median_test(PRI1, PRI2)
-                p_value = cur_res[1]
-            elif test == "kw":
-                cur_res = stats.kruskal(*sample_split)
-                p_value = cur_res[1]
-
-            print("res", cur_res)
-            # p_value = cur_res[1]
-            # if test == "ad":
-            #     p_value = cur_res[2]
-            # if p_value < 0.01:
-            #     reject_null = True # early stopping
-            p_values.append(p_value)
-
-            # print(pd.DataFrame(new_risks1).describe())
-            # print(pd.DataFrame(new_risks2).describe())
-            # print(f"p_value: {p_value}")
-
-            elapsed = time.time() - start_time
-            test_equal_distribution_time += elapsed
-
-        # Now we have n p-values for the current epsilon, we use multiple comparisons' technique
-        # to determine if this epsilon is good enough
-        # For now we use false discovery rate
-        # print(p_values)
-        if test_eps_num_runs > 1:
-            if not fdr(p_values, q):  # q = proportion of false positives we will accept
-                # We want no discovery (fail to reject null) for all n runs
-                # If we fail to reject the null, then we break the loop.
-                # The current epsilon is the one we choose
-                best_eps = eps
-                break
-        else:
-            if p_values[0] > q:
-                best_eps = eps
-                # break
-
-        # TODO: if we find a lot of discoveries (a lot of small p-values),
-        #  we can skip epsilons that are close to the current eps (ex. 10 to 9).
-        #  If there's only a few discoveries,
-        #  we should probe epsilons that are close (10 to 9.9)
-
-        '''
             # print(pd.DataFrame(PRIs).describe())
 
             min = np.min(PRIs)
@@ -888,7 +775,7 @@ if __name__ == '__main__':
     # eps_list = [0.01]
 
     start_time = time.time()
-    eps = find_epsilon(df, query_string, eps_list, num_parallel_processes=8, percentage=5, delta=0)
+    eps = find_epsilon(df, query_string, eps_list, num_parallel_processes=8, percentage=5, delta=10e-6)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

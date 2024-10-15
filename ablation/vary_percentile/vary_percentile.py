@@ -7,7 +7,7 @@ sys.path.append('/home/cc/DP_test/')
 from privacy_budget.find_epsilon import *
  
 if __name__ == '__main__':
-    df = pd.read_csv("/home/cc/DP_test/scalability/data/adult_100000.csv")
+    df = pd.read_csv("/home/cc/DP_test/scalability/data/adult_10000.csv")
     res_dir = "/home/cc/DP_test/ablation/vary_percentile/result"
 
     num_runs_experiment = 50
@@ -73,10 +73,10 @@ if __name__ == '__main__':
             if gaussian:
                 mech_str = "gaussian_"
 
-            with open(f"{res_dir}/{mech_str}percentile_{percentage}_eps.log", "w") as f:
+            with open(f"{res_dir}/{mech_str}p_{percentage}_eps.log", "w") as f:
                 for eps in res_eps_list:
                     f.write(str(eps)[1:-1] + "\n")
 
-            with open(f"{res_dir}/{mech_str}percentile_{percentage}_time.log", "w") as f:
+            with open(f"{res_dir}/{mech_str}p_{percentage}_time.log", "w") as f:
                 for times in time_list:
                     f.write(str(times)[1:-1] + "\n")

@@ -7,8 +7,8 @@ sys.path.append('/home/cc/DP_test/')
 from privacy_budget.find_epsilon import *
  
 if __name__ == '__main__':
-    df = pd.read_csv("/home/cc/DP_test/scalability/data/adult_100000.csv")
-    res_dir = "/home/cc/DP_test/ablation/ablation/vary_svt_threshold/result"
+    df = pd.read_csv("/home/cc/DP_test/scalability/data/adult_10000.csv")
+    res_dir = "/home/cc/DP_test/ablation/vary_svt_threshold/result"
 
     num_runs_experiment = 50
 

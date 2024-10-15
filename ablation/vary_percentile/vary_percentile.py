@@ -17,10 +17,6 @@ if __name__ == '__main__':
     eps_list += list(np.arange(0.1, 1, 0.1, dtype=float))
     eps_list += list(np.arange(1, 11, 1, dtype=float))
     num_parallel_processes = 8
-    percentage = 5
-    gaussian = False
-    svt = True
-    svt_eps = 10
 
     queries = ["SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25",
                "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age "
@@ -33,55 +29,54 @@ if __name__ == '__main__':
 
     percentages = [5, 25, 50, 75, 95]
 
-    for percentage in percentages:
+    for gaussian in [True, False]:
 
-        print("percentage:", percentage)
+        for percentage in percentages:
 
-        res_eps_list = []
-        time_list = []
+            print("percentage:", percentage)
 
-        for i in range(num_runs_experiment):
+            res_eps_list = []
+            time_list = []
 
-            print("i:", i)
+            for i in range(num_runs_experiment):
 
-            res_eps = []
-            times = []
+                print("i:", i)
 
-            for query_string in queries:
+                res_eps = []
+                times = []
 
-                # if percentage == 0 and query_string == "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'":
-                #     times.append(0)
-                #     res_eps.append(None)
-                #     continue
+                for query_string in queries:
 
-                print(query_string)
+                    print(query_string)
 
-                start_time = time.time()
-                res = find_epsilon(df, query_string, eps_list, 
-                                   percentage=percentage,
-                                   num_parallel_processes=num_parallel_processes, 
-                                   gaussian=gaussian,
-                                   svt=svt,
-                                   svt_eps=svt_eps)                
-                elapsed = time.time() - start_time
-                print(f"total time: {elapsed} s")
-                times.append(elapsed)
+                    start_time = time.time()
+                    res = find_epsilon(df, query_string, eps_list, 
+                                    percentage=percentage,
+                                    num_parallel_processes=num_parallel_processes, 
+                                    gaussian=gaussian)                
+                    elapsed = time.time() - start_time
+                    print(f"total time: {elapsed} s")
+                    times.append(elapsed)
 
-                best_eps = None
-                if res is not None:
-                    best_eps = res[0]
+                    best_eps = None
+                    if res is not None:
+                        best_eps = res[0]
 
-                print("eps:", best_eps)
+                    print("eps:", best_eps)
 
-                res_eps.append(best_eps)
+                    res_eps.append(best_eps)
 
-            res_eps_list.append(res_eps)
-            time_list.append(times)
+                res_eps_list.append(res_eps)
+                time_list.append(times)
 
-        with open(f"percentile_{percentage}_eps.log", "w") as f:
-            for eps in res_eps_list:
-                f.write(str(eps)[1:-1] + "\n")
+            mech_str = "laplace_"
+            if gaussian:
+                mech_str = "gaussian_"
 
-        with open(f"percentile_{percentage}_time.log", "w") as f:
-            for times in time_list:
-                f.write(str(times)[1:-1] + "\n")
+            with open(f"{mech_str}percentile_{percentage}_eps.log", "w") as f:
+                for eps in res_eps_list:
+                    f.write(str(eps)[1:-1] + "\n")
+
+            with open(f"{mech_str}percentile_{percentage}_time.log", "w") as f:
+                for times in time_list:
+                    f.write(str(times)[1:-1] + "\n")

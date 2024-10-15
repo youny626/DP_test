@@ -34,8 +34,7 @@ if __name__ == '__main__':
     num_parallel_processes = 8
     percentage = 5
     gaussian = False
-    svt = True
-    svt_eps = 10
+    svt_eps = 1
 
     # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
     # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND
@@ -58,70 +57,75 @@ if __name__ == '__main__':
     data_list = ["adult_1000", "adult_10000", "adult_100000", "adult_1000000"]
     # data_list = ["adult_100000"]
 
-    for data in data_list:
+    for svt in [True, False]:
 
-        data_path = f"{root_dir}/data/{data}.csv"        
-        df = pd.read_csv(data_path)
+        for data in data_list:
 
-        print("data:", data)
+            data_path = f"{root_dir}/data/{data}.csv"        
+            df = pd.read_csv(data_path)
 
-        time_list = []
-        time_exclude_insert_db_list = []
-        res_eps_list = []
+            print("data:", data)
 
-        for i in range(num_runs_experiment):
+            time_list = []
+            time_exclude_insert_db_list = []
+            res_eps_list = []
 
-            print("i:", i)
+            for i in range(num_runs_experiment):
 
-            times = []
-            times_exclude_insert_db = []
-            res_eps = []
+                print("i:", i)
 
-            for sql_query in queries:
+                times = []
+                times_exclude_insert_db = []
+                res_eps = []
 
-                print("query:", sql_query)
+                for sql_query in queries:
 
-                start_time = time.time()
-                res = find_epsilon(df, sql_query, eps_list, 
-                                   percentage=percentage,
-                                   num_parallel_processes=num_parallel_processes, 
-                                   gaussian=gaussian,
-                                   svt=svt,
-                                   svt_eps=svt_eps)
-                elapsed = time.time() - start_time
-                print(f"time: {elapsed} s")
-                times.append(elapsed)
+                    print("query:", sql_query)
 
-                if res is not None:
-                    best_eps, dp_result, insert_db_time = res
-                    print("best eps:", best_eps)
-                    res_eps.append(best_eps)
-                    times_exclude_insert_db.append(elapsed - insert_db_time)
-                else:
-                    print("can't find epsilon")
-                    res_eps.append(None)
+                    start_time = time.time()
+                    res = find_epsilon(df, sql_query, eps_list, 
+                                    percentage=percentage,
+                                    num_parallel_processes=num_parallel_processes, 
+                                    gaussian=gaussian,
+                                    svt=svt,
+                                    svt_eps=svt_eps)
+                    elapsed = time.time() - start_time
+                    print(f"time: {elapsed} s")
+                    times.append(elapsed)
 
-            time_list.append(times)
-            time_exclude_insert_db_list.append(times_exclude_insert_db)
-            res_eps_list.append(res_eps)
+                    if res is not None:
+                        best_eps, dp_result, insert_db_time = res
+                        print("best eps:", best_eps)
+                        res_eps.append(best_eps)
+                        times_exclude_insert_db.append(elapsed - insert_db_time)
+                    else:
+                        print("can't find epsilon")
+                        res_eps.append(None)
 
-            with open(f"{res_dir}/{data}_time.log", "a") as f:
-                f.write(str(times)[1:-1] + "\n")
+                time_list.append(times)
+                time_exclude_insert_db_list.append(times_exclude_insert_db)
+                res_eps_list.append(res_eps)
 
-            with open(f"{res_dir}/{data}_time_exclude_insert_db.log", "a") as f:
-                f.write(str(times_exclude_insert_db)[1:-1] + "\n")
+                svt_str = ""
+                if svt:
+                    svt_str = "svt_"
+                with open(f"{res_dir}/{svt_str}{data}_time.log", "a") as f:
+                    f.write(str(times)[1:-1] + "\n")
 
-            with open(f"{res_dir}/{data}_eps.log", "a") as f:
-                f.write(str(res_eps)[1:-1] + "\n")
+                with open(f"{res_dir}/{svt_str}{data}_time_exclude_insert_db.log", "a") as f:
+                    f.write(str(times_exclude_insert_db)[1:-1] + "\n")
 
-        # with open(f"{data}_time_full.log", "w") as f:
-        #     for times in time_list:
-        #         f.write(str(times)[1:-1] + "\n")
+                with open(f"{res_dir}/{svt_str}{data}_eps.log", "a") as f:
+                    f.write(str(res_eps)[1:-1] + "\n")
 
-        # with open(f"{data}_time_exclude_insert_db_full.log", "w") as f:
-        #     for times in time_exclude_insert_db_list:
-        #         f.write(str(times)[1:-1] + "\n")
+            # with open(f"{data}_time_full.log", "w") as f:
+            #     for times in time_list:
+            #         f.write(str(times)[1:-1] + "\n")
 
-        # with open(f"{data}_eps_full.log", "w") as f:
-        #     for res_eps in res_eps_list:
-        #         f.write(str(res_eps)[1:-1] + "\n")
+            # with open(f"{data}_time_exclude_insert_db_full.log", "w") as f:
+            #     for times in time_exclude_insert_db_list:
+            #         f.write(str(times)[1:-1] + "\n")
+
+            # with open(f"{data}_eps_full.log", "w") as f:
+            #     for res_eps in res_eps_list:
+            #         f.write(str(res_eps)[1:-1] + "\n")

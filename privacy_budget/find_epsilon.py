@@ -503,7 +503,8 @@ def find_epsilon(df: pd.DataFrame,
                  num_parallel_processes: int = 8,
                  gaussian: bool = False,
                  svt: bool = False,
-                 svt_eps: float = 1.0):
+                 svt_eps: float = 1.0,
+                 variance_threshold: float = 10e-10):
 
     with warnings.catch_warnings():
         warnings.simplefilter(action="ignore")
@@ -648,6 +649,16 @@ def find_epsilon(df: pd.DataFrame,
         # query_string = query_string.replace(f" {table_name} ", f" {table_name}.{table_name} ")
         query_string = re.sub(f" FROM {table_name}", f" FROM {table_name}.{table_name}", query_string,
                               flags=re.IGNORECASE)
+        
+        # SVT
+        if svt:
+            variance_sens = 1 / num_rows
+
+            eps_svt_1 = svt_eps / (1 + math.pow(2, 2/3))
+            eps_svt_2 = math.pow(2, 2/3) * svt_eps / (1 + math.pow(2, 2/3))
+            # eps_1 = svt_eps / 3
+            # eps_2 = 2 * svt_eps / 3
+            threshold_noise = np.random.laplace(loc=0, scale=variance_sens/eps_svt_1)
 
         for eps in sorted_eps_to_test:
 
@@ -716,25 +727,38 @@ def find_epsilon(df: pd.DataFrame,
             # print("max / denom", max / denom)
             # print("max / med", max / median)
 
-            ratio = min_pri / max_pri
-            threshold = 1.0 - percentage / 100
-
             if svt:
-                eps_1 = svt_eps / (1 + math.pow(2, 2/3))
-                eps_2 = math.pow(2, 2/3) * svt_eps / (1 + math.pow(2, 2/3))
-                # eps_1 = svt_eps / 3
-                # eps_2 = 2 * svt_eps / 3
-                ratio += np.random.laplace(loc=0, scale=2/eps_2)
-                threshold += np.random.laplace(loc=0, scale=1/eps_1)
+                variance = np.var(PRIs)
+                variance_noise = np.random.laplace(loc=0, scale=2*variance_sens/eps_svt_2)
+
+                PRIs = [val/max_pri for val in PRIs]
+                noisy_variance = -variance + variance_noise
+                noisy_threshold = -variance_threshold + threshold_noise
+
+                print(variance)
+                print(noisy_variance, noisy_threshold)
+
+                # var <= threshold ~ -var >= -threshold
+                if noisy_variance >= noisy_threshold:
+                    best_eps = float(eps)
+                    break                
+                # print(ratio, threshold)
+
+                # ratio += np.random.laplace(loc=0, scale=2/eps_svt_2)
+                # threshold += threshold_noise
                 
                 # ratio = np.clip(ratio, 0.0, 1.0)
                 # threshold = np.clip(threshold, 0.0, 1.0)
-                # print(eps_1, eps_2)
+
                 # print(ratio, threshold)
 
-            if ratio >= threshold:
-                best_eps = float(eps)
-                break
+            else: 
+                ratio = min_pri / max_pri
+                threshold = 1.0 - percentage / 100
+
+                if ratio >= threshold:
+                    best_eps = float(eps)
+                    break
 
         # print(f"total time to compute new risk: {compute_risk_time} s")
         # print(f"total time to test equal distribution: {test_equal_distrbution_time} s")
@@ -764,8 +788,8 @@ if __name__ == '__main__':
     # query_string = "SELECT COUNT(*) FROM adult WHERE age < 40 AND income == '>50K'"
     # query_string = "SELECT race, COUNT(*) FROM adult WHERE education_num >= 14 AND income == '<=50K' GROUP BY race"
 
-    query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
-    # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
+    # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
+    query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
     # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
     # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
     # query_string = "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
@@ -793,7 +817,7 @@ if __name__ == '__main__':
                                                        percentage=5, 
                                                        gaussian=False, 
                                                        svt=True, 
-                                                       svt_eps=10)
+                                                       svt_eps=0.01)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

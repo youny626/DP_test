@@ -10,7 +10,7 @@ import random
 
 import sys
 # caution: path[0] is reserved for script path (or '' in REPL)
-sys.path.append('/Users/zhiruzhu/Desktop/dp_paper/DP_test')
+sys.path.append('/home/cc/DP_test/')
 
 from privacy_budget.find_epsilon import * 
 
@@ -35,6 +35,7 @@ if __name__ == '__main__':
     percentage = 5
     gaussian = False
     svt_eps = 1
+    variance_threshold = 10e-6
 
     # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
     # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND
@@ -51,8 +52,8 @@ if __name__ == '__main__':
                "SELECT SUM(capital_gain) FROM adult"
                ]
 
-    root_dir = "/Users/zhiruzhu/Desktop/dp_paper/DP_test/scalability"
-    res_dir = "/Users/zhiruzhu/Desktop/dp_paper/DP_test/svt_res/eps10"
+    root_dir = "/home/cc/DP_test/scalability"
+    res_dir = "/home/cc/DP_test/scalability/result"
 
     data_list = ["adult_1000", "adult_10000", "adult_100000", "adult_1000000"]
     # data_list = ["adult_100000"]
@@ -81,26 +82,27 @@ if __name__ == '__main__':
                 for sql_query in queries:
 
                     print("query:", sql_query)
-
+                    
                     start_time = time.time()
-                    res = find_epsilon(df, sql_query, eps_list, 
+                    best_eps, dp_result, insert_db_time = find_epsilon(df, sql_query, eps_list, 
                                     percentage=percentage,
                                     num_parallel_processes=num_parallel_processes, 
                                     gaussian=gaussian,
                                     svt=svt,
-                                    svt_eps=svt_eps)
+                                    svt_eps=svt_eps,
+                                    variance_threshold=variance_threshold)
                     elapsed = time.time() - start_time
                     print(f"time: {elapsed} s")
                     times.append(elapsed)
+                    times_exclude_insert_db.append(elapsed - insert_db_time)
+                    res_eps.append(best_eps)
 
-                    if res is not None:
-                        best_eps, dp_result, insert_db_time = res
-                        print("best eps:", best_eps)
-                        res_eps.append(best_eps)
-                        times_exclude_insert_db.append(elapsed - insert_db_time)
-                    else:
-                        print("can't find epsilon")
-                        res_eps.append(None)
+                    # if best_eps is not None:
+                    #     print("best eps:", best_eps)
+                    #     res_eps.append(best_eps)
+                    # else:
+                    #     print("can't find epsilon")
+                    #     res_eps.append(None)
 
                 time_list.append(times)
                 time_exclude_insert_db_list.append(times_exclude_insert_db)

@@ -121,7 +121,7 @@ def compute_neighboring_results(df, query_string, idx_to_compute, table_name, ro
     else:
         where_pos += len(" WHERE ")
 
-    engine = create_engine("sqlite:///:memory:")
+    engine = create_engine("sqlite:///:memory:", connect_args={'check_same_thread': False})
     # engine = create_engine(f"sqlite:///file:memdb{num}?mode=memory&cache=shared&uri=true")
 
     with engine.connect() as conn:
@@ -539,7 +539,7 @@ def find_epsilon(df: pd.DataFrame,
 
         start_time = time.time()
 
-        engine = create_engine("sqlite:///:memory:")
+        engine = create_engine("sqlite:///:memory:", connect_args={'check_same_thread': False})
         sqlite_connection = engine.connect()
 
         num_rows = to_sql(df_copy, name=table_name, con=sqlite_connection,
@@ -684,7 +684,7 @@ def find_epsilon(df: pd.DataFrame,
                 subquery, query = private_reader._rewrite_ast(query_ast)
             except ValueError as err:
                 print(err)
-                return None
+                return None, None, insert_db_time
             # col_sensitivities = get_query_sensitivities(private_reader, subquery, query)
             # print(col_sensitivities)
 
@@ -718,7 +718,7 @@ def find_epsilon(df: pd.DataFrame,
 
             # print(pd.DataFrame(PRIs).describe())
 
-            min_pri = np.min(PRIs)
+            # min_pri = np.min(PRIs)
             max_pri = np.max(PRIs)
             # median = np.median(PRIs)
             # denom = np.percentage(PRIs, percentage)
@@ -728,15 +728,18 @@ def find_epsilon(df: pd.DataFrame,
             # print("max / med", max / median)
 
             if svt:
+                PRIs = [val/max_pri for val in PRIs]
+
                 variance = np.var(PRIs)
                 variance_noise = np.random.laplace(loc=0, scale=2*variance_sens/eps_svt_2)
 
-                PRIs = [val/max_pri for val in PRIs]
                 noisy_variance = -variance + variance_noise
                 noisy_threshold = -variance_threshold + threshold_noise
 
-                print(variance)
-                print(noisy_variance, noisy_threshold)
+                # print(PRIs[:10])
+                # print(variance, variance_noise)
+                # print(variance_threshold, threshold_noise)
+                # print(noisy_variance, noisy_threshold)
 
                 # var <= threshold ~ -var >= -threshold
                 if noisy_variance >= noisy_threshold:
@@ -753,6 +756,8 @@ def find_epsilon(df: pd.DataFrame,
                 # print(ratio, threshold)
 
             else: 
+                min_pri = np.min(PRIs)
+
                 ratio = min_pri / max_pri
                 threshold = 1.0 - percentage / 100
 
@@ -766,7 +771,7 @@ def find_epsilon(df: pd.DataFrame,
         sqlite_connection.close()
 
         if best_eps is None:
-            return None
+            return None, None, insert_db_time
 
         return best_eps, dp_result, insert_db_time  # also return the dp result computed
 
@@ -775,7 +780,7 @@ if __name__ == '__main__':
     # csv_path = '../adult.csv'
     # df = pd.read_csv(csv_path)#.head(100)
     # print(df.head())
-    df = pd.read_csv("/Users/zhiruzhu/Desktop/dp_paper/DP_test/scalability/data/adult_10000.csv")
+    df = pd.read_csv("/home/cc/DP_test/scalability/data/adult_10000.csv")
     # df = pd.read_csv("../adult.csv")
     # df = df[["age", "education", "education.num", "race", "income"]]
     # df.rename(columns={'education.num': 'education_num'}, inplace=True)
@@ -788,11 +793,10 @@ if __name__ == '__main__':
     # query_string = "SELECT COUNT(*) FROM adult WHERE age < 40 AND income == '>50K'"
     # query_string = "SELECT race, COUNT(*) FROM adult WHERE education_num >= 14 AND income == '<=50K' GROUP BY race"
 
-    # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
-    query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
+    query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
+    # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
     # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
     # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
-    # query_string = "SELECT SUM(fnlwgt) FROM adult WHERE capital_gain > 0 AND income == '<=50K' AND occupation == 'Sales'"
     # query_string = "SELECT SUM(capital_gain) FROM adult"
 
     # query_string = "SELECT sex, AVG(age) FROM adult GROUP BY sex"
@@ -817,7 +821,8 @@ if __name__ == '__main__':
                                                        percentage=5, 
                                                        gaussian=False, 
                                                        svt=True, 
-                                                       svt_eps=0.01)
+                                                       svt_eps=1,
+                                                       variance_threshold=10e-6)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

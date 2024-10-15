@@ -2,13 +2,13 @@ import pandas as pd
 import numpy as np
 import sys
 # caution: path[0] is reserved for script path (or '' in REPL)
-sys.path.append('/Users/zhiruzhu/Desktop/dp_paper/DP_test')
+sys.path.append('/home/cc/DP_test/')
 
 from privacy_budget.find_epsilon import *
  
 if __name__ == '__main__':
-    df = pd.read_csv("/Users/zhiruzhu/Desktop/dp_paper/DP_test/scalability/data/adult_100000.csv")
-    res_dir = "/Users/zhiruzhu/Desktop/dp_paper/DP_test/ablation/vary_percentile/svt_res"
+    df = pd.read_csv("/home/cc/DP_test/scalability/data/adult_100000.csv")
+    res_dir = "/home/cc/DP_test/ablation/ablation/vary_svt_threshold/result"
 
     num_runs_experiment = 50
 
@@ -27,9 +27,9 @@ if __name__ == '__main__':
                "SELECT SUM(capital_gain) FROM adult"
                ]
 
-    for svt_eps in [0.01, 0.1, 1, 10]:
+    for svt_threshold in [10e-3, 10e-6, 10e-9, 10e-12]:
 
-        print("svt_eps:", svt_eps)
+        print("svt_threshold:", svt_threshold)
 
         res_eps_list = []
         time_list = []
@@ -47,17 +47,17 @@ if __name__ == '__main__':
                 print(query_string)
 
                 start_time = time.time()
-                res = find_epsilon(df, query_string, eps_list, 
+                best_eps, dp_result, insert_db_time = find_epsilon(df, query_string, eps_list, 
                                 num_parallel_processes=num_parallel_processes, 
                                 svt=True,
-                                svt_eps=svt_eps)                
+                                variance_threshold=svt_threshold)                
                 elapsed = time.time() - start_time
                 print(f"total time: {elapsed} s")
                 times.append(elapsed)
 
-                best_eps = None
-                if res is not None:
-                    best_eps = res[0]
+                # best_eps = None
+                # if res is not None:
+                #     best_eps = res[0]
 
                 print("eps:", best_eps)
 
@@ -67,10 +67,10 @@ if __name__ == '__main__':
             time_list.append(times)
 
 
-        with open(f"svt_eps_{svt_eps}_eps.log", "w") as f:
+        with open(f"{res_dir}/threshold_{svt_threshold}_eps.log", "w") as f:
             for eps in res_eps_list:
                 f.write(str(eps)[1:-1] + "\n")
 
-        with open(f"svt_eps_{svt_eps}_time.log", "w") as f:
+        with open(f"{res_dir}/threshold_{svt_threshold}_time.log", "w") as f:
             for times in time_list:
                 f.write(str(times)[1:-1] + "\n")

@@ -46,6 +46,8 @@ def get_metadata(df: pd.DataFrame, name: str):
     t = metadata[name][name][name]
     t["row_privacy"] = True
     t["rows"] = len(df)
+    t["clamp_counts"] = True
+    t["censor_dims"] = False
 
     df_inferred = df.convert_dtypes()
     # print(df_inferred.dtypes)
@@ -770,6 +772,7 @@ def find_epsilon(df: pd.DataFrame,
             privacy = Privacy(epsilon=eps, delta=0)
 
         private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
+
         dp_result = private_reader.execute(query_string)
         # dp_aggregates = [val[1:] for val in dp_result.itertuples()]
 
@@ -783,8 +786,8 @@ if __name__ == '__main__':
     # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
     # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
     # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
-    # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
-    query_string = "SELECT SUM(capital_gain) FROM adult"
+    query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
+    # query_string = "SELECT SUM(capital_gain) FROM adult"
 
     # query_string = "SELECT sex, AVG(age) FROM adult GROUP BY sex"
     # query_string = "SELECT AVG(age) FROM adult"
@@ -804,7 +807,7 @@ if __name__ == '__main__':
     best_eps, dp_result, insert_db_time = find_epsilon(df, query_string, eps_list, 
                                                        num_parallel_processes=8, 
                                                        percentage=5,
-                                                       gaussian=True,
+                                                       gaussian=False,
                                                        svt=False,
                                                        svt_eps=1,
                                                        variance_threshold=10e-8)

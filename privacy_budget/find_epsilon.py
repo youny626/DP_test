@@ -552,6 +552,9 @@ def find_epsilon(df: pd.DataFrame,
         start_time = time.time()
 
         original_result = read_sql(sql=query_string, con=sqlite_connection)
+
+        sqlite_connection.close()
+
         original_aggregates = [val[1:] for val in original_result.itertuples()]
 
         # if len(original_result.select_dtypes(include=np.number).columns) > 1:
@@ -676,7 +679,7 @@ def find_epsilon(df: pd.DataFrame,
                 scale = 2.0 * (sens**2) * math.log(1.25 / delta) / (eps**2)
             else:
                 scale = sens / eps
-            print(scale)
+            # print(scale)
 
             for neighboring_aggregate in neighboring_aggregates:
 
@@ -741,7 +744,7 @@ def find_epsilon(df: pd.DataFrame,
             else: 
                 min_pri = np.min(PRIs)
 
-                print(min_pri, max_pri)
+                # print(min_pri, max_pri)
 
                 ratio = min_pri / max_pri
                 threshold = 1.0 - percentage / 100
@@ -767,23 +770,8 @@ def find_epsilon(df: pd.DataFrame,
             privacy = Privacy(epsilon=eps, delta=0)
 
         private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
-
-        # rewrite the query ast once for every epsilon
-        query_ast = private_reader.parse_query_string(query_string)
-        try:
-            subquery, query = private_reader._rewrite_ast(query_ast)
-        except ValueError as err:
-            print(err)
-            return None, None, insert_db_time
-
-        dp_result = execute_rewritten_ast(sqlite_connection, table_name, private_reader, subquery, query)
-        dp_result = private_reader._to_df(dp_result)
+        dp_result = private_reader.execute(query_string)
         # dp_aggregates = [val[1:] for val in dp_result.itertuples()]
-
-        # print("dp_result", dp_result)
-        # print("dp_aggregates", dp_aggregates)
-
-        sqlite_connection.close()
 
         return best_eps, dp_result, insert_db_time  # also return the dp result computed
 
@@ -808,7 +796,7 @@ if __name__ == '__main__':
     eps_list += list(np.arange(0.01, 0.1, 0.01, dtype=float))
     eps_list += list(np.arange(0.1, 1, 0.1, dtype=float))
     eps_list += list(np.arange(1, 11, 1, dtype=float))
-    print(len(eps_list))
+    # print(len(eps_list))
     # exit()
     # eps_list = [0.01]
 
@@ -824,6 +812,7 @@ if __name__ == '__main__':
     print(f"total time: {elapsed} s")
 
     print(best_eps)
+    print(dp_result)
 
     # times = []
     #

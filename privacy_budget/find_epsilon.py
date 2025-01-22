@@ -81,8 +81,6 @@ def get_metadata(df: pd.DataFrame, name: str):
 
 def compute_neighboring_results(df, query_string, idx_to_compute, table_name, row_num_col, table_metadata):
     neighboring_results = []
-    # original_risks = []
-    # risk_score_cache = {}
 
     query_string = re.sub(f" WHERE ", f" WHERE ", query_string, flags=re.IGNORECASE)
     query_string = re.sub(f" FROM ", f" FROM ", query_string, flags=re.IGNORECASE)
@@ -557,37 +555,35 @@ def find_epsilon(df: pd.DataFrame,
 
         sqlite_connection.close()
 
-        original_aggregates = [val[1:] for val in original_result.itertuples()]
+        original_aggregate = [val[1:] for val in original_result.itertuples()]
 
         # if len(original_result.select_dtypes(include=np.number).columns) > 1:
         #     print("error: can only have one numerical column in the query result")
         #     return None
 
-        # print("original_result", original_aggregates)
+        # print("original_result", original_aggregate)
         # print(original_result)
-
-        neighboring_results = []
 
         # start_time = time.time()
 
         cache = defaultdict(list)
 
-        columns_values = list(df[query_columns].itertuples(index=False, name=None))
+        rows = list(df[query_columns].itertuples(index=False, name=None))
 
-        for i in range(len(columns_values)):
-            cache[columns_values[i]].append(i)
+        for i, row in enumerate(rows):
+            cache[row].append(i)
 
         inv_cache = {}
-        indices = np.arange(len(df))
         indices_to_ignore = []
 
-        for k, v in cache.items():
+        for row, indices in cache.items():
 
-            indices_to_ignore += v[1:]  # only need to compute result for one
+            indices_to_ignore += indices[1:]  # only need to compute result for one
 
-            for i in v:
-                inv_cache[i] = k
+            for i in indices:
+                inv_cache[i] = row
 
+        indices = np.arange(len(df))
         np.put(indices, indices_to_ignore, [-1] * len(indices_to_ignore))
 
         # print(len(indices), len(indices_to_ignore), len(indices) - len(indices_to_ignore))
@@ -599,6 +595,8 @@ def find_epsilon(df: pd.DataFrame,
 
         idx_split = np.array_split(indices, num_parallel_processes)
 
+        neighboring_results = []
+
         with mp.Pool(processes=num_parallel_processes) as mp_pool:
 
             args = [(df, query_string, idx_to_compute, table_name, row_num_col, table_metadata)
@@ -608,9 +606,6 @@ def find_epsilon(df: pd.DataFrame,
                 # *np.array(args).T):
                 neighboring_results += cur_neighboring_results
 
-            # compute_exact_aggregates_of_neighboring_data(df, table_name, row_num_col, idx_to_compute,
-            #                                              private_reader, subquery, query)
-
         neighboring_aggregates = []
 
         for i in range(len(neighboring_results)):
@@ -618,21 +613,23 @@ def find_epsilon(df: pd.DataFrame,
                 idx_computed = cache[inv_cache[i]][0]
                 neighboring_results[i] = neighboring_results[idx_computed]
 
-            neighboring_result = neighboring_results[i]
-            neighboring_aggregate = [val[1:] for val in neighboring_result.itertuples()]
+            neighboring_aggregate = [val[1:] for val in neighboring_results[i].itertuples()]
             # print("neighboring_aggregates", neighboring_aggregates)
 
-            if len(neighboring_aggregate) != len(original_aggregates):
+            if len(neighboring_aggregate) != len(original_aggregate):
                 # corner case: group by results missing for one group after removing one record
-                missing_group = set(original_aggregates) - set(neighboring_aggregate)
-                # assert len(missing_group) == 1
+                missing_group = set(original_aggregate) - set(neighboring_aggregate)
+                assert len(missing_group) == 1
                 missing_group = missing_group.pop()
-                missing_group_pos = original_aggregates.index(missing_group)
+                # print(original_aggregate)
+                # print(missing_group)
+                missing_group_pos = original_aggregate.index(missing_group)
                 missing_group = list(missing_group)
                 for i in range(len(missing_group)):
                     if isinstance(missing_group[i], numbers.Number):
                         missing_group[i] = 0
                 neighboring_aggregate.insert(missing_group_pos, tuple(missing_group))
+                # print(neighboring_aggregate)
 
             # print("neighboring_aggregates", neighboring_aggregates)
 
@@ -640,6 +637,22 @@ def find_epsilon(df: pd.DataFrame,
 
         elapsed = time.time() - start_time
         # print(f"time to compute neighboring_results: {elapsed} s")
+
+        per_instance_sens = []
+
+        for neighboring_aggregate in neighboring_aggregates:
+
+            sens = 0
+            for row1, row2 in zip(original_aggregate, neighboring_aggregate):
+                for val1, val2 in zip(row1, row2):
+                    if is_number(val1) and is_number(val2):
+
+                        if gaussian:
+                            sens += (val1 - val2) ** 2
+                        else:
+                            sens += abs(val1 - val2)
+
+            per_instance_sens.append(sens)
 
         best_eps = None
 
@@ -656,8 +669,6 @@ def find_epsilon(df: pd.DataFrame,
 
             eps_svt_1 = svt_eps / (1 + math.pow(2, 2/3))
             eps_svt_2 = math.pow(2, 2/3) * svt_eps / (1 + math.pow(2, 2/3))
-            # eps_1 = svt_eps / 3
-            # eps_2 = 2 * svt_eps / 3
             threshold_noise = np.random.laplace(loc=0, scale=variance_sens/eps_svt_1)
 
         if gaussian:
@@ -667,8 +678,7 @@ def find_epsilon(df: pd.DataFrame,
 
             print(f"epsilon = {eps}")
 
-            PRIs = []
-            k = len(original_aggregates)
+            k = len(original_aggregate)
 
             if query_type == QueryType.COUNT:
                 sens = 1
@@ -679,41 +689,13 @@ def find_epsilon(df: pd.DataFrame,
 
             if gaussian:
                 scale = 2.0 * (sens**2) * math.log(1.25 / delta) / (eps**2)
+                PRIs = [math.sqrt(sens + k * scale) for sens in per_instance_sens]
             else:
                 scale = sens / eps
-            # print(scale)
-
-            for neighboring_aggregate in neighboring_aggregates:
-
-                per_instance_sens = 0
-                for row1, row2 in zip(original_aggregates, neighboring_aggregate):
-                    for val1, val2 in zip(row1, row2):
-                        if is_number(val1) and is_number(val2):
-
-                            if gaussian:
-                                per_instance_sens += (val1 - val2)**2
-                            else:
-                                per_instance_sens += abs(val1 - val2)
-
-                if gaussian:
-                    # print(per_instance_sens, scale, k * scale)
-                    PRI = math.sqrt(per_instance_sens + k * scale)
-                else:
-                    # print(per_instance_sens)
-                    PRI = per_instance_sens + k * scale
-
-                PRIs.append(PRI) 
-
-            # print(pd.DataFrame(PRIs).describe())
+                PRIs = [sens + k * scale for sens in per_instance_sens]
 
             # min_pri = np.min(PRIs)
             max_pri = np.max(PRIs)
-            # median = np.median(PRIs)
-            # denom = np.percentage(PRIs, percentage)
-
-            # print("max / min", max / min)
-            # print("max / denom", max / denom)
-            # print("max / med", max / median)
 
             if svt:
                 PRIs = [val/max_pri for val in PRIs]
@@ -734,15 +716,6 @@ def find_epsilon(df: pd.DataFrame,
                     best_eps = float(eps)
                     break                
                 # print(ratio, threshold)
-
-                # ratio += np.random.laplace(loc=0, scale=2/eps_svt_2)
-                # threshold += threshold_noise
-                
-                # ratio = np.clip(ratio, 0.0, 1.0)
-                # threshold = np.clip(threshold, 0.0, 1.0)
-
-                # print(ratio, threshold)
-
             else: 
                 min_pri = np.min(PRIs)
 
@@ -781,12 +754,12 @@ def find_epsilon(df: pd.DataFrame,
 
 if __name__ == '__main__':
 
-    df = pd.read_csv("../scalability/data/adult_10000.csv")
+    df = pd.read_csv("../scalability/data/adult_1000.csv")
 
     # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
-    # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
+    query_string = "SELECT marital_status, COUNT(*) AS cnt FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
     # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
-    query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
+    # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
     # query_string = "SELECT SUM(capital_gain) FROM adult"
 
     # query_string = "SELECT sex, AVG(age) FROM adult GROUP BY sex"
@@ -808,7 +781,7 @@ if __name__ == '__main__':
                                                        num_parallel_processes=8, 
                                                        percentage=5,
                                                        gaussian=False,
-                                                       svt=True,
+                                                       svt=False,
                                                        svt_eps=1,
                                                        variance_threshold=10e-8)
     elapsed = time.time() - start_time

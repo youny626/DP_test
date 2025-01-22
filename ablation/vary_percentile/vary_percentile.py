@@ -2,15 +2,15 @@ import pandas as pd
 import numpy as np
 import sys
 # caution: path[0] is reserved for script path (or '' in REPL)
-sys.path.append('/home/cc/DP_test/')
+# sys.path.append('/home/cc/DP_test/')
 
 from privacy_budget.find_epsilon import *
  
 if __name__ == '__main__':
-    df = pd.read_csv("/home/cc/DP_test/scalability/data/adult_10000.csv")
-    res_dir = "/home/cc/DP_test/ablation/vary_percentile/result"
+    df = pd.read_csv("/Users/zhiruzhu/Desktop/dp_paper/DP_test/adult.csv")
+    res_dir = "/Users/zhiruzhu/Desktop/dp_paper/DP_test/ablation/vary_percentile/result"
 
-    num_runs_experiment = 50
+    num_runs_experiment = 1
 
     eps_list = list(np.arange(0.001, 0.01, 0.001, dtype=float))
     eps_list += list(np.arange(0.01, 0.1, 0.01, dtype=float))

@@ -6,11 +6,9 @@ import itertools
 import math
 import numbers
 import re
-from enum import Enum
 
 import numpy as np
 import pandas as pd
-from pandas.core.dtypes.inference import is_number
 from scipy import stats
 import tqdm
 import time
@@ -76,6 +74,34 @@ def get_metadata(df: pd.DataFrame, name: str):
             raise ValueError("Unknown column type for column {0}".format(col))
 
     return metadata
+
+
+def fdr(p_values, q):
+    rejected, pvalue_corrected = fdrcorrection(p_values, alpha=q)
+    # print(any(rejected))
+    return any(rejected)
+
+    # # Based on https://matthew-brett.github.io/teaching/fdr.html
+    #
+    # # q = 0.1 # proportion of false positives we will accept
+    # N = len(p_values)
+    # sorted_p_values = np.sort(p_values)  # sort p-values ascended
+    # i = np.arange(1, N + 1)  # the 1-based i index of the p values, as in p(i)
+    # below = (sorted_p_values < (q * i / N))  # True where p(i)<q*i/N
+    # if len(np.where(below)[0]) == 0:
+    #     return False
+    # max_below = np.max(np.where(below)[0])  # max index where p(i)<q*i/N
+    # print('p*:', sorted_p_values[max_below])
+    #
+    # # num_discoveries = 0
+    # for p in p_values:
+    #     if p < sorted_p_values[max_below]:
+    #         print("Discovery: " + str(p))
+    #         return True
+    #         # num_discoveries += 1
+    # # print("num_discoveries =", num_discoveries)
+    # return False
+
 
 def compute_neighboring_results(df, query_string, idx_to_compute, table_name, row_num_col, table_metadata):
     neighboring_results = []
@@ -470,13 +496,6 @@ def extract_table_names(query):
     return set(tables)
 
 
-class QueryType(Enum):
-    COUNT = 1
-    SUM = 2
-    AVG = 3
-    # MIN = 4
-    # MAX = 5
-
 def find_epsilon(df: pd.DataFrame,
                  query_string: str,
                  eps_to_test: list,
@@ -490,59 +509,43 @@ def find_epsilon(df: pd.DataFrame,
     with warnings.catch_warnings():
         warnings.simplefilter(action="ignore")
 
-        sql_parser = Parser(query_string)
-
-        table_names = sql_parser.tables
+        table_names = extract_table_names(query_string)
         if len(table_names) != 1:
-            raise Exception("error: can only query on one table")
-
-        if len(sql_parser.subqueries) > 0:
+            print("error: can only query on one table")
+            return None
+        if query_string.count("SELECT ") > 1:
             # there's subquery
-            raise Exception("error: can't have subquery")
-
-        if " COUNT" in query_string:
-            query_type = QueryType.COUNT
-        elif " SUM" in query_string:
-            query_type = QueryType.SUM
-        elif " AVG" in query_string:
-            query_type = QueryType.AVG
-        else:
-            raise Exception("error: query type not supported")
-
-        if query_type != QueryType.COUNT:
-            select_cols = sql_parser.columns_dict["select"]
-            if "group_by" in sql_parser.columns_dict:
-                group_by_cols = sql_parser.columns_dict["group_by"]
-                select_cols = set(select_cols) - set(group_by_cols)
-            # print(select_cols)
-            if len(select_cols) != 1:
-                raise Exception("error: can only have one select column")
-            select_col = select_cols.pop()
-
+            print("error: can't have subquery")
+            return None
         table_name = table_names.pop()
         # print(table_name)
+
+        sql_parser = Parser(query_string)
         query_columns = sql_parser.columns
         # print(query_columns)
-        df = df[query_columns]
-        # df = df.sample(frac=1, random_state=random_state).reset_index(drop=True)
+        df_copy = df.copy()
+        df_copy = df_copy[query_columns]
+        # df_copy = df_copy.sample(frac=1, random_state=random_state).reset_index(drop=True)
 
-        metadata = get_metadata(df, table_name)
+        metadata = get_metadata(df_copy, table_name)
         table_metadata = metadata[table_name][table_name][table_name]
 
         # just needed to create a row_num col that doesn't already exist
-        row_num_col = "row_num"
-        df[row_num_col] = df.reset_index().index
-        df.set_index(row_num_col)
+        row_num_col = f"row_num_{random.randint(0, 10000)}"
+        while row_num_col in df_copy.columns:
+            row_num_col = f"row_num_{random.randint(0, 10000)}"
+        df_copy[row_num_col] = df_copy.reset_index().index
+        df_copy.set_index(row_num_col)
 
         start_time = time.time()
 
         engine = create_engine("sqlite:///:memory:", connect_args={'check_same_thread': False})
         sqlite_connection = engine.connect()
 
-        num_rows = to_sql(df, name=table_name, con=sqlite_connection,
-                          # index=not any(name is None for name in df.index.names),
+        num_rows = to_sql(df_copy, name=table_name, con=sqlite_connection,
+                          # index=not any(name is None for name in df_copy.index.names),
                           if_exists="replace")  # load index into db if all levels are named
-        if num_rows != len(df):
+        if num_rows != len(df_copy):
             print("error when loading to sqlite")
             return None
 
@@ -573,7 +576,7 @@ def find_epsilon(df: pd.DataFrame,
             cache[columns_values[i]].append(i)
 
         inv_cache = {}
-        indices = np.arange(len(df))
+        indices = np.arange(len(df_copy))
         indices_to_ignore = []
 
         for k, v in cache.items():
@@ -596,14 +599,14 @@ def find_epsilon(df: pd.DataFrame,
 
         with mp.Pool(processes=num_parallel_processes) as mp_pool:
 
-            args = [(df, query_string, idx_to_compute, table_name, row_num_col, table_metadata)
+            args = [(df_copy, query_string, idx_to_compute, table_name, row_num_col, table_metadata)
                     for idx_to_compute in idx_split]
 
             for cur_neighboring_results in mp_pool.starmap(compute_neighboring_results, args):  #
                 # *np.array(args).T):
                 neighboring_results += cur_neighboring_results
 
-            # compute_exact_aggregates_of_neighboring_data(df, table_name, row_num_col, idx_to_compute,
+            # compute_exact_aggregates_of_neighboring_data(df_copy, table_name, row_num_col, idx_to_compute,
             #                                              private_reader, subquery, query)
 
         neighboring_aggregates = []
@@ -619,6 +622,7 @@ def find_epsilon(df: pd.DataFrame,
 
             if len(neighboring_aggregate) != len(original_aggregates):
                 # corner case: group by results missing for one group after removing one record
+                # print("in")
                 missing_group = set(original_aggregates) - set(neighboring_aggregate)
                 # assert len(missing_group) == 1
                 missing_group = missing_group.pop()
@@ -626,6 +630,7 @@ def find_epsilon(df: pd.DataFrame,
                 missing_group = list(missing_group)
                 for i in range(len(missing_group)):
                     if isinstance(missing_group[i], numbers.Number):
+                        # print("xxxx")
                         missing_group[i] = 0
                 neighboring_aggregate.insert(missing_group_pos, tuple(missing_group))
 
@@ -655,47 +660,59 @@ def find_epsilon(df: pd.DataFrame,
             # eps_2 = 2 * svt_eps / 3
             threshold_noise = np.random.laplace(loc=0, scale=variance_sens/eps_svt_1)
 
-        if gaussian:
-            delta = 1 / pow(num_rows, 2)
-
         for eps in sorted_eps_to_test:
 
             print(f"epsilon = {eps}")
 
-            PRIs = []
-            k = len(original_aggregates)
-
-            if query_type == QueryType.COUNT:
-                sens = 1
-            elif query_type == QueryType.SUM:
-                sens = int(table_metadata[select_col]["upper"]) - int(table_metadata[select_col]["lower"])
-            elif query_type == QueryType.AVG:
-                sens = (int(table_metadata[select_col]["upper"]) - int(table_metadata[select_col]["lower"])) / num_rows
-
+            privacy = Privacy(epsilon=eps, delta=0)
             if gaussian:
-                scale = 2.0 * (sens**2) * math.log(1.25 / delta) / (eps**2)
-            else:
-                scale = sens / eps
-            print(scale)
+                delta = 1 / pow(num_rows, 2)
+                privacy = Privacy(epsilon=eps, delta=delta)
+                privacy.mechanisms.map[Stat.count] = Mechanism.gaussian
+                privacy.mechanisms.map[Stat.sum_int] = Mechanism.gaussian
+                privacy.mechanisms.map[Stat.sum_large_int] = Mechanism.gaussian
+                privacy.mechanisms.map[Stat.sum_float] = Mechanism.gaussian
+                privacy.mechanisms.map[Stat.threshold] = Mechanism.gaussian
 
+            private_reader = snsql.from_df(df_copy, metadata=metadata, privacy=privacy)
+            # private_reader._options.censor_dims = False
+            # private_reader.rewriter.options.censor_dims = False
+            # dp_result = private_reader.execute_df(query)
+            # rewrite the query ast once for every epsilon
+            query_ast = private_reader.parse_query_string(query_string)
+            try:
+                subquery, query = private_reader._rewrite_ast(query_ast)
+            except ValueError as err:
+                print(err)
+                return None, None, insert_db_time
+            # col_sensitivities = get_query_sensitivities(private_reader, subquery, query)
+            # print(col_sensitivities)
+
+            start_time = time.time()
+
+            dp_result = execute_rewritten_ast(sqlite_connection, table_name, private_reader, subquery, query)
+            dp_result = private_reader._to_df(dp_result)
+            # print(dp_result)
+            dp_aggregates = [val[1:] for val in dp_result.itertuples()]
+
+            # print("dp_result", dp_result)
+            # print("dp_aggregates", dp_aggregates)
+
+            PRIs = []
             for neighboring_aggregate in neighboring_aggregates:
 
-                per_instance_sens = 0
-                for row1, row2 in zip(original_aggregates, neighboring_aggregate):
+                PRI = 0
+                for row1, row2 in zip(dp_aggregates, neighboring_aggregate):
                     for val1, val2 in zip(row1, row2):
-                        if is_number(val1) and is_number(val2):
-
+                        if isinstance(val1, numbers.Number) and isinstance(val2, numbers.Number):
                             if gaussian:
-                                per_instance_sens += (val1 - val2)**2
+                                # gaussian
+                                PRI += pow(val1 - val2, 2)
                             else:
-                                per_instance_sens += abs(val1 - val2)
-
+                                # laplace
+                                PRI += abs(val1 - val2)
                 if gaussian:
-                    # print(per_instance_sens, scale, k * scale)
-                    PRI = math.sqrt(per_instance_sens + k * scale)
-                else:
-                    # print(per_instance_sens)
-                    PRI = per_instance_sens + k * scale
+                    PRI = math.sqrt(PRI)
 
                 PRIs.append(PRI) 
 
@@ -741,8 +758,6 @@ def find_epsilon(df: pd.DataFrame,
             else: 
                 min_pri = np.min(PRIs)
 
-                print(min_pri, max_pri)
-
                 ratio = min_pri / max_pri
                 threshold = 1.0 - percentage / 100
 
@@ -753,53 +768,41 @@ def find_epsilon(df: pd.DataFrame,
         # print(f"total time to compute new risk: {compute_risk_time} s")
         # print(f"total time to test equal distribution: {test_equal_distrbution_time} s")
 
+        sqlite_connection.close()
+
         if best_eps is None:
             return None, None, insert_db_time
-
-        if gaussian:
-            privacy = Privacy(epsilon=eps, delta=delta)
-            privacy.mechanisms.map[Stat.count] = Mechanism.gaussian
-            privacy.mechanisms.map[Stat.sum_int] = Mechanism.gaussian
-            privacy.mechanisms.map[Stat.sum_large_int] = Mechanism.gaussian
-            privacy.mechanisms.map[Stat.sum_float] = Mechanism.gaussian
-            privacy.mechanisms.map[Stat.threshold] = Mechanism.gaussian
-        else:
-            privacy = Privacy(epsilon=eps, delta=0)
-
-        private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
-
-        # rewrite the query ast once for every epsilon
-        query_ast = private_reader.parse_query_string(query_string)
-        try:
-            subquery, query = private_reader._rewrite_ast(query_ast)
-        except ValueError as err:
-            print(err)
-            return None, None, insert_db_time
-
-        dp_result = execute_rewritten_ast(sqlite_connection, table_name, private_reader, subquery, query)
-        dp_result = private_reader._to_df(dp_result)
-        # dp_aggregates = [val[1:] for val in dp_result.itertuples()]
-
-        # print("dp_result", dp_result)
-        # print("dp_aggregates", dp_aggregates)
-
-        sqlite_connection.close()
 
         return best_eps, dp_result, insert_db_time  # also return the dp result computed
 
 
 if __name__ == '__main__':
-
+    # csv_path = '../adult.csv'
+    # df = pd.read_csv(csv_path)#.head(100)
+    # print(df.head())
     df = pd.read_csv("../scalability/data/adult_10000.csv")
+    # df = pd.read_csv("../adult.csv")
+    # df = df[["age", "education", "education.num", "race", "income"]]
+    # df.rename(columns={'education.num': 'education_num'}, inplace=True)
+    # df = df.sample(1000, random_state=0, ignore_index=True)
+    # df = pd.read_csv("adult_100_sample.csv")
+    # df.rename(columns={'education.num': 'education_num'}, inplace=True)
+    # df["row_num"] = df.reset_index().index
+    # print(df)
 
-    # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
+    # query_string = "SELECT COUNT(*) FROM adult WHERE age < 40 AND income == '>50K'"
+    # query_string = "SELECT race, COUNT(*) FROM adult WHERE education_num >= 14 AND income == '<=50K' GROUP BY race"
+
+    query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
     # query_string = "SELECT marital_status, COUNT(*) FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
     # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
     # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
-    query_string = "SELECT SUM(capital_gain) FROM adult"
+    # query_string = "SELECT SUM(capital_gain) FROM adult"
 
     # query_string = "SELECT sex, AVG(age) FROM adult GROUP BY sex"
+
     # query_string = "SELECT AVG(age) FROM adult"
+
     # query_string = "SELECT AVG(capital_loss) FROM adult WHERE hours_per_week > 40 AND workclass == 'Federal-gov' OR
     # workclass == 'Local-gov' or workclass == 'State-gov'"
 
@@ -815,11 +818,11 @@ if __name__ == '__main__':
     start_time = time.time()
     best_eps, dp_result, insert_db_time = find_epsilon(df, query_string, eps_list, 
                                                        num_parallel_processes=8, 
-                                                       percentage=5,
-                                                       gaussian=True,
-                                                       svt=False,
+                                                       percentage=5, 
+                                                       gaussian=False, 
+                                                       svt=True, 
                                                        svt_eps=1,
-                                                       variance_threshold=10e-8)
+                                                       variance_threshold=10e-6)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

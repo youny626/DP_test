@@ -808,7 +808,7 @@ if __name__ == '__main__':
                                                        num_parallel_processes=8, 
                                                        percentage=5,
                                                        gaussian=False,
-                                                       svt=False,
+                                                       svt=True,
                                                        svt_eps=1,
                                                        variance_threshold=10e-8)
     elapsed = time.time() - start_time

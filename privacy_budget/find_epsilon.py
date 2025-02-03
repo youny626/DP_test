@@ -748,7 +748,7 @@ def find_epsilon(df: pd.DataFrame,
 
         try:
             # sometimes noise scale is too large
-            dp_result = private_reader.execute(query_string)
+            dp_result = private_reader.execute(query_string, postprocess=False)
             # dp_aggregates = [val[1:] for val in dp_result.itertuples()]
         except Exception as e:
             print(e)
@@ -759,7 +759,7 @@ def find_epsilon(df: pd.DataFrame,
 
 if __name__ == '__main__':
 
-    df = pd.read_csv("../adult.csv")
+    df = pd.read_csv("adult.csv")
 
     # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
     # query_string = "SELECT marital_status, COUNT(*) AS cnt FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"

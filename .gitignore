@@ -1,5 +1,6 @@
 *.pem
 *.pdf
+my-venv/
 
 user_study/
 bak/

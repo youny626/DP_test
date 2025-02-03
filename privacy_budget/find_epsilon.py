@@ -681,17 +681,17 @@ def find_epsilon(df: pd.DataFrame,
             k = len(original_aggregate)
 
             if query_type == QueryType.COUNT:
-                sens = 1
+                global_sens = 1
             elif query_type == QueryType.SUM:
-                sens = int(table_metadata[select_col]["upper"]) - int(table_metadata[select_col]["lower"])
+                global_sens = int(table_metadata[select_col]["upper"]) - int(table_metadata[select_col]["lower"])
             elif query_type == QueryType.AVG:
-                sens = (int(table_metadata[select_col]["upper"]) - int(table_metadata[select_col]["lower"])) / num_rows
+                global_sens = (int(table_metadata[select_col]["upper"]) - int(table_metadata[select_col]["lower"])) / num_rows
 
             if gaussian:
-                scale = 2.0 * (sens**2) * math.log(1.25 / delta) / (eps**2)
+                scale = 2.0 * (global_sens**2) * math.log(1.25 / delta) / (eps**2)
                 PRIs = [math.sqrt(sens + k * scale) for sens in per_instance_sens]
             else:
-                scale = sens / eps
+                scale = global_sens / eps
                 PRIs = [sens + k * scale for sens in per_instance_sens]
 
             # min_pri = np.min(PRIs)
@@ -754,12 +754,12 @@ def find_epsilon(df: pd.DataFrame,
 
 if __name__ == '__main__':
 
-    df = pd.read_csv("../scalability/data/adult_1000.csv")
+    df = pd.read_csv("../adult.csv")
 
     # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
-    query_string = "SELECT marital_status, COUNT(*) AS cnt FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
+    # query_string = "SELECT marital_status, COUNT(*) AS cnt FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
     # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
-    # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
+    query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
     # query_string = "SELECT SUM(capital_gain) FROM adult"
 
     # query_string = "SELECT sex, AVG(age) FROM adult GROUP BY sex"
@@ -781,9 +781,9 @@ if __name__ == '__main__':
                                                        num_parallel_processes=8, 
                                                        percentage=5,
                                                        gaussian=False,
-                                                       svt=False,
+                                                       svt=True,
                                                        svt_eps=1,
-                                                       variance_threshold=10e-8)
+                                                       variance_threshold=10e-5)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

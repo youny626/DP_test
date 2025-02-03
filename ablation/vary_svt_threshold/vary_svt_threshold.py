@@ -7,7 +7,7 @@ sys.path.append('/home/cc/DP_test/')
 from privacy_budget.find_epsilon import *
  
 if __name__ == '__main__':
-    df = pd.read_csv("/home/cc/DP_test/scalability/data/adult_10000.csv")
+    df = pd.read_csv("/home/cc/DP_test/adult.csv")
     res_dir = "/home/cc/DP_test/ablation/vary_svt_threshold/result"
 
     num_runs_experiment = 50
@@ -27,50 +27,56 @@ if __name__ == '__main__':
                "SELECT SUM(capital_gain) FROM adult"
                ]
 
-    for svt_threshold in [10e-3, 10e-6, 10e-9, 10e-12]:
+    for gaussian in [True, False]:
 
-        print("svt_threshold:", svt_threshold)
+        for svt_threshold in [10e-5, 10e-7, 10e-9, 10e-11]:
 
-        res_eps_list = []
-        time_list = []
+            # print("svt_threshold:", svt_threshold)
 
-        for i in range(num_runs_experiment):
+            res_eps_list = []
+            time_list = []
 
-            print("i:", i)
+            for i in range(num_runs_experiment):
 
-            res_eps = []
-            times = []
+                print("i:", i)
 
-            for query_string in queries:
+                res_eps = []
+                times = []
 
+                for query_string in queries:
 
-                print(query_string)
+                    print(query_string)
 
-                start_time = time.time()
-                best_eps, dp_result, insert_db_time = find_epsilon(df, query_string, eps_list, 
-                                num_parallel_processes=num_parallel_processes, 
-                                svt=True,
-                                variance_threshold=svt_threshold)                
-                elapsed = time.time() - start_time
-                print(f"total time: {elapsed} s")
-                times.append(elapsed)
+                    start_time = time.time()
+                    best_eps, dp_result, insert_db_time = (
+                        find_epsilon(df, query_string, eps_list,
+                                    num_parallel_processes=num_parallel_processes,
+                                    gaussian=gaussian,
+                                    svt=True,
+                                    variance_threshold=svt_threshold))
+                    elapsed = time.time() - start_time
+                    print(f"total time: {elapsed} s")
+                    times.append(elapsed)
 
-                # best_eps = None
-                # if res is not None:
-                #     best_eps = res[0]
+                    # best_eps = None
+                    # if res is not None:
+                    #     best_eps = res[0]
 
-                print("eps:", best_eps)
+                    print("eps:", best_eps)
 
-                res_eps.append(best_eps)
+                    res_eps.append(best_eps)
 
-            res_eps_list.append(res_eps)
-            time_list.append(times)
+                res_eps_list.append(res_eps)
+                time_list.append(times)
 
+            mech_str = "laplace_"
+            if gaussian:
+                mech_str = "gaussian_"
 
-        with open(f"{res_dir}/threshold_{svt_threshold}_eps.log", "w") as f:
-            for eps in res_eps_list:
-                f.write(str(eps)[1:-1] + "\n")
+            with open(f"{res_dir}/{mech_str}t_{svt_threshold}_eps.log", "w") as f:
+                for eps in res_eps_list:
+                    f.write(str(eps)[1:-1] + "\n")
 
-        with open(f"{res_dir}/threshold_{svt_threshold}_time.log", "w") as f:
-            for times in time_list:
-                f.write(str(times)[1:-1] + "\n")
+            with open(f"{res_dir}/{mech_str}t_{svt_threshold}_time.log", "w") as f:
+                for times in time_list:
+                    f.write(str(times)[1:-1] + "\n")

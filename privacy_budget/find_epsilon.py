@@ -735,19 +735,24 @@ def find_epsilon(df: pd.DataFrame,
             return None, None, insert_db_time
 
         if gaussian:
-            privacy = Privacy(epsilon=eps, delta=delta)
+            privacy = Privacy(epsilon=best_eps, delta=delta)
             privacy.mechanisms.map[Stat.count] = Mechanism.gaussian
             privacy.mechanisms.map[Stat.sum_int] = Mechanism.gaussian
             privacy.mechanisms.map[Stat.sum_large_int] = Mechanism.gaussian
             privacy.mechanisms.map[Stat.sum_float] = Mechanism.gaussian
             privacy.mechanisms.map[Stat.threshold] = Mechanism.gaussian
         else:
-            privacy = Privacy(epsilon=eps, delta=0)
+            privacy = Privacy(epsilon=best_eps, delta=0)
 
         private_reader = snsql.from_df(df, metadata=metadata, privacy=privacy)
 
-        dp_result = private_reader.execute(query_string)
-        # dp_aggregates = [val[1:] for val in dp_result.itertuples()]
+        try:
+            # sometimes noise scale is too large
+            dp_result = private_reader.execute(query_string)
+            # dp_aggregates = [val[1:] for val in dp_result.itertuples()]
+        except Exception as e:
+            print(e)
+            return best_eps, None, insert_db_time
 
         return best_eps, dp_result, insert_db_time  # also return the dp result computed
 
@@ -759,8 +764,8 @@ if __name__ == '__main__':
     # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
     # query_string = "SELECT marital_status, COUNT(*) AS cnt FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
     # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
-    query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
-    # query_string = "SELECT SUM(capital_gain) FROM adult"
+    # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
+    query_string = "SELECT SUM(capital_gain) FROM adult"
 
     # query_string = "SELECT sex, AVG(age) FROM adult GROUP BY sex"
     # query_string = "SELECT AVG(age) FROM adult"
@@ -780,10 +785,10 @@ if __name__ == '__main__':
     best_eps, dp_result, insert_db_time = find_epsilon(df, query_string, eps_list, 
                                                        num_parallel_processes=8, 
                                                        percentage=5,
-                                                       gaussian=False,
+                                                       gaussian=True,
                                                        svt=True,
                                                        svt_eps=1,
-                                                       variance_threshold=10e-5)
+                                                       variance_threshold=10e-11)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 

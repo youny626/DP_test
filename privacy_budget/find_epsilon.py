@@ -748,7 +748,7 @@ def find_epsilon(df: pd.DataFrame,
 
         try:
             # sometimes noise scale is too large
-            dp_result = private_reader.execute(query_string, postprocess=False)
+            dp_result = private_reader.execute(query_string)
             # dp_aggregates = [val[1:] for val in dp_result.itertuples()]
         except Exception as e:
             print(e)
@@ -759,13 +759,13 @@ def find_epsilon(df: pd.DataFrame,
 
 if __name__ == '__main__':
 
-    df = pd.read_csv("adult.csv")
+    df = pd.read_csv("../adult.csv")
 
-    # query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
+    query_string = "SELECT COUNT(*) FROM adult WHERE income == '>50K' AND education_num == 13 AND age == 25"
     # query_string = "SELECT marital_status, COUNT(*) AS cnt FROM adult WHERE race == 'Asian-Pac-Islander' AND age >= 30 AND age <= 40 GROUP BY marital_status"
     # query_string = "SELECT COUNT(*) FROM adult WHERE native_country != 'United-States' AND sex == 'Female'"
     # query_string = "SELECT AVG(hours_per_week) FROM adult WHERE workclass == 'Federal-gov' OR workclass == 'Local-gov' or workclass == 'State-gov'"
-    query_string = "SELECT SUM(capital_gain) FROM adult"
+    # query_string = "SELECT SUM(capital_gain) FROM adult"
 
     # query_string = "SELECT sex, AVG(age) FROM adult GROUP BY sex"
     # query_string = "SELECT AVG(age) FROM adult"
@@ -785,10 +785,10 @@ if __name__ == '__main__':
     best_eps, dp_result, insert_db_time = find_epsilon(df, query_string, eps_list, 
                                                        num_parallel_processes=8, 
                                                        percentage=5,
-                                                       gaussian=True,
+                                                       gaussian=False,
                                                        svt=True,
                                                        svt_eps=1,
-                                                       variance_threshold=10e-11)
+                                                       variance_threshold=10e-4)
     elapsed = time.time() - start_time
     print(f"total time: {elapsed} s")
 
